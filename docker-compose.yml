@@ -1,0 +1,24 @@
+services:
+  rag-app:
+    build:
+    
+      dockerfile: Dockerfile
+      context: .
+
+    container_name: rag-app
+
+    volumes:
+      - ./src:/app/src
+      - ./src/config:/app/src/config
+      - ./src/models:/app/src/models
+      - ./src/document_processor:/app/src/document_processor
+      - ./src/input_files:/app/src/input_files
+      - ./src/vectorstore:/app/src/vectorstore
+      - ./src/rag:/app/src/rag
+
+    environment:
+      - HF_HOME=/app/src/models/cache
+
+    ports:
+      - "8000:8000"
+

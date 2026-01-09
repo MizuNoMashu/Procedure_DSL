@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.git/
+.vscode/
+.idea/
+.DS_Store
+models/
+data/
+vectorstore/
+logs/
+*.md
+Dockerfile
+docker-compose.yml
