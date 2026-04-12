@@ -212,3 +212,8 @@ __marimo__/
 src/input_files/*
 src/models/cache/*
 .DS_Store
+
+*.csv
+*.txt
+*.yml
+src/vectorstore/*

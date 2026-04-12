@@ -28,31 +28,35 @@ class LanguageModel:
         print(f"   Device: {self.device}")
         print(f"   This may take a few minutes...")
         
-        # Carica tokenizer
+        # Carica tokenizer (usa HF_HOME come cache, allineato al volume Docker)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name,
-            cache_dir="/app/models/cache"
+            self.model_name
         )
-        
-        # Carica modello
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
-            cache_dir="/app/models/cache",
-            dtype=torch.float16 if self.device != "cpu" else torch.float32,
-            device_map="auto" if self.device != "cpu" else None,
-            low_cpu_mem_usage=True
-        )
-        
-        # Se CPU, metti modello su CPU esplicitamente
-        if self.device == "cpu":
-            self.model = self.model.to("cpu")
-        
+
+        # Carica modello in float16
+        # device_map="auto" funziona solo con CUDA, non con MPS o CPU
+        if self.device == "cuda":
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                dtype=torch.float16,
+                device_map="auto",
+                low_cpu_mem_usage=True
+            )
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                dtype=torch.float16,
+                low_cpu_mem_usage=True
+            )
+            self.model = self.model.to(self.device)
+
         # Crea pipeline per generazione
+        pipeline_device = {"cuda": 0, "mps": "mps", "cpu": -1}.get(self.device, -1)
         self.pipeline = pipeline(
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            device=0 if self.device == "cuda" else -1  # 0 per GPU, -1 per CPU
+            device=pipeline_device
         )
         
         print(f"✅ LLM loaded successfully")
@@ -86,7 +90,7 @@ class LanguageModel:
             top_p=0.95,
             num_return_sequences=1,
             eos_token_id=self.tokenizer.eos_token_id,
-            pad_token_id=self.tokenizer.pad_token_id
+            pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         )
         
         # Estrai testo generato
@@ -117,28 +121,28 @@ class LanguageModel:
     
     def _format_chat_prompt(self, messages: list) -> str:
         """
-        Formatta messaggi chat in prompt.
-        
-        Formato semplice:
-        User: [message]
-        Assistant: [response]
+        Formatta messaggi usando il chat template del tokenizer se disponibile
+        (es. Qwen2.5, TinyLlama, ecc.), altrimenti fallback semplice.
         """
+        if getattr(self.tokenizer, 'chat_template', None):
+            return self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+
+        # Fallback generico
         prompt_parts = []
-        
         for msg in messages:
             role = msg.get('role', 'user')
             content = msg.get('content', '')
-            
             if role == 'user':
                 prompt_parts.append(f"User: {content}")
             elif role == 'assistant':
                 prompt_parts.append(f"Assistant: {content}")
             elif role == 'system':
                 prompt_parts.append(f"System: {content}")
-        
-        # Aggiungi "Assistant:" alla fine per far iniziare la generazione
         prompt_parts.append("Assistant:")
-        
         return "\n".join(prompt_parts)
     
     def get_info(self) -> dict:

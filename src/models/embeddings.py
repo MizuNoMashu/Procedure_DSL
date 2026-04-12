@@ -51,12 +51,13 @@ class EmbeddingModel:
         if isinstance(texts, str):
             texts = [texts]
         
-        # Genera embeddings
+        # Genera embeddings (normalize_embeddings=True migliora BGE e cosine similarity)
         embeddings = self.model.encode(
             texts,
             batch_size=batch_size,
             show_progress_bar=False,
-            convert_to_numpy=True
+            convert_to_numpy=True,
+            normalize_embeddings=True
         )
         
         return embeddings

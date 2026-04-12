@@ -26,16 +26,19 @@ class VectorStore:
         """
         print(f"📦 Initializing vector store at {persist_directory}")
         
-        # Create ChromaDB client
-        self.client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False
-        ))
-        
-        # Get or create collection
+        # Create ChromaDB client (API v1.x)
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False)
+        )
+
+        # Get or create collection with cosine similarity
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name,
-            metadata={"description": "RAG document embeddings"}
+            metadata={
+                "description": "RAG document embeddings",
+                "hnsw:space": "cosine"
+            }
         )
         
         print(f"✅ Vector store initialized")

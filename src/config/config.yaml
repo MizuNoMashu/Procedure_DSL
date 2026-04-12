@@ -1,15 +1,15 @@
 device: cpu
 
 embeddings:
-  model: sentence-transformers/all-MiniLM-L6-v2
+  model: BAAI/bge-small-en-v1.5
 
 llm:
-  model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
-  max_tokens: 512
+  model: Qwen/Qwen2.5-3B-Instruct
+  max_tokens: 1024
 
 chunking:
-  size: 500
-  overlap: 50
+  size: 1000
+  overlap: 100
 
 retrieval:
   top_k: 10
