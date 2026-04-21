@@ -11,3 +11,4 @@ chunking:
 extraction:
   min_confidence: 0.5   # steps below this are flagged invalid
   refine_invalid: true  # run a second LLM pass on invalid steps
+
