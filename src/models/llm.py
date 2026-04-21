@@ -51,13 +51,21 @@ class LanguageModel:
             self.model = self.model.to(self.device)
 
         # Crea pipeline per generazione
-        pipeline_device = {"cuda": 0, "mps": "mps", "cpu": -1}.get(self.device, -1)
-        self.pipeline = pipeline(
-            "text-generation",
-            model=self.model,
-            tokenizer=self.tokenizer,
-            device=pipeline_device
-        )
+        # Quando usi device_map="auto", non passare device al pipeline
+        if self.device == "cuda":
+            self.pipeline = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer
+            )
+        else:
+            pipeline_device = {"mps": "mps", "cpu": -1}.get(self.device, -1)
+            self.pipeline = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                device=pipeline_device
+            )
         
         print(f"✅ LLM loaded successfully")
         

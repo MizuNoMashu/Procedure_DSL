@@ -1,7 +1,7 @@
 # LLM local
 huggingface-hub==0.34.0
 transformers==4.57.3
-torch==2.9.1
+torch==2.4.0
 
 # Document loaders
 pypdf==6.4.1
@@ -17,3 +17,5 @@ python-dotenv==1.2.1
 # Web server
 flask==3.1.2
 flask-cors==6.0.1
+
+accelerate
