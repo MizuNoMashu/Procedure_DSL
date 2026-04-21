@@ -4,7 +4,6 @@ Text chunking utilities.
 """
 
 from typing import List
-from flask import current_app
 
 class TextChunk:
     """Container for text chunk"""
@@ -22,14 +21,20 @@ class TextChunker:
     def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
         """
         Args:
-            chunk_size: Characters per chunk (None = use config)
-            chunk_overlap: Overlap between chunks (None = use config)
+            chunk_size: Characters per chunk (None = use config or default 1000)
+            chunk_overlap: Overlap between chunks (None = use config or default 100)
         """
         if chunk_size is None or chunk_overlap is None:
-            config = current_app.config['RAG_CONFIG']
-            chunk_size = chunk_size or config['chunking']['size']
-            chunk_overlap = chunk_overlap or config['chunking']['overlap']
-        
+            try:
+                from flask import current_app
+                config = current_app.config.get('RAG_CONFIG') or current_app.config.get('PIPELINE_CONFIG', {})
+                chunk_size = chunk_size or config.get('chunking', {}).get('size', 1000)
+                chunk_overlap = chunk_overlap or config.get('chunking', {}).get('overlap', 100)
+            except (RuntimeError, ImportError):
+                # No Flask installed or no active app context — use defaults
+                chunk_size = chunk_size or 1000
+                chunk_overlap = chunk_overlap or 100
+
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
     

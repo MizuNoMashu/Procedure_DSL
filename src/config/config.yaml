@@ -1,8 +1,5 @@
 device: cpu
 
-embeddings:
-  model: BAAI/bge-small-en-v1.5
-
 llm:
   model: Qwen/Qwen2.5-3B-Instruct
   max_tokens: 1024
@@ -11,5 +8,6 @@ chunking:
   size: 1000
   overlap: 100
 
-retrieval:
-  top_k: 10
+extraction:
+  min_confidence: 0.5   # steps below this are flagged invalid
+  refine_invalid: true  # run a second LLM pass on invalid steps
