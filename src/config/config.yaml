@@ -1,7 +1,7 @@
 device: cuda
 
 llm:
-  model: google/gemma-4-E4B-it
+  model: Qwen/Qwen2.5-7B-Instruct  # Ottimo bilancio precisione/velocità (~7B parametri, ~7GB RAM)
   max_tokens: 2048
 
 chunking:

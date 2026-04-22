@@ -6,7 +6,7 @@ and AutoProcessor-based models (Gemma 4 style).
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from flask import current_app
 
 
@@ -19,6 +19,14 @@ class LanguageModel:
         self.device = None
         self.model_name = None
         self._uses_processor = False  # True per modelli Gemma 4 style
+
+    def _supports_flash_attn(self) -> bool:
+        """Check if flash attention 2 is available."""
+        try:
+            import flash_attn
+            return True
+        except ImportError:
+            return False
 
     def load(self):
         """Carica modello da config"""
@@ -38,24 +46,28 @@ class LanguageModel:
             self._uses_processor = True
             print("   Loader: AutoProcessor")
         except Exception:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            # Fix per Gemma: extra_special_tokens deve essere un dict, non una lista
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name,
+                extra_special_tokens={}
+            )
             self._uses_processor = False
             print("   Loader: AutoTokenizer")
 
-        # dtype="auto" lascia decidere al modello (bfloat16/float16/float32)
-        dtype = "auto" if self._uses_processor else torch.float16
-
         if self.device == "cuda":
+            # Carica con bfloat16 e CPU offloading automatico se necessario
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                dtype=dtype,
-                device_map="auto",
+                torch_dtype=torch.bfloat16,
+                device_map="auto",  # Distribuisce automaticamente tra GPU e CPU
                 low_cpu_mem_usage=True,
             )
+            print("   Using device_map='auto' (GPU + CPU offloading if needed)")
         else:
+            dtype = torch.float16
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                dtype=dtype,
+                torch_dtype=dtype,
                 low_cpu_mem_usage=True,
             )
             self.model = self.model.to(self.device)
@@ -185,14 +197,18 @@ class LanguageModel:
                 top_p=0.95,
             )
 
-        has_parse = hasattr(self.tokenizer, 'parse_response')
+        # Check if parse_response exists AND is callable
+        has_parse = hasattr(self.tokenizer, 'parse_response') and callable(getattr(self.tokenizer, 'parse_response', None))
         response = self.tokenizer.decode(
             outputs[0][input_len:],
-            skip_special_tokens=not has_parse,  # False solo per Gemma 4 (serve parse_response)
+            skip_special_tokens=True,
         )
 
         if has_parse:
-            return self.tokenizer.parse_response(response)
+            try:
+                return self.tokenizer.parse_response(response)
+            except (AttributeError, TypeError):
+                pass  # Fallback to direct response
         return response.strip()
 
     def _generate_tokenizer(self, prompt_text: str, max_tokens: int, temperature: float) -> str:

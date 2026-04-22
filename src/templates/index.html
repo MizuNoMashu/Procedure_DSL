@@ -107,8 +107,7 @@
 </div>
 
 <div class="row">
-  <button id="btn-json" class="primary" disabled onclick="runExtract()">Extract Steps (JSON)</button>
-  <button id="btn-csv" disabled onclick="runExtractCsv()">Extract &amp; Download CSV</button>
+  <button id="btn-extract" class="primary" disabled onclick="runExtract()">Extract &amp; Download CSV</button>
 </div>
 
 <div id="status"></div>
@@ -138,8 +137,7 @@
   function setFile(f) {
     file = f;
     document.getElementById('file-label').textContent = f ? '📄 ' + f.name : '';
-    document.getElementById('btn-json').disabled = !f;
-    document.getElementById('btn-csv').disabled = !f;
+    document.getElementById('btn-extract').disabled = !f;
     clearMessages();
     document.getElementById('results').style.display = 'none';
   }
@@ -183,36 +181,13 @@
     fd.append('file', file);
 
     try {
-      const resp = await fetch('/extract', { method: 'POST', body: fd });
-      const data = await resp.json();
-      setStatus('');
-      if (!resp.ok) { showError(data.error || 'Extraction failed'); return; }
-      renderStats(data.stats);
-      renderSteps(data.steps || []);
-      setStatus(`✓ Done — ${(data.steps || []).length} steps extracted.`);
-    } catch (err) {
-      setStatus('');
-      showError('Network error: ' + err.message);
-    }
-  }
-
-  async function runExtractCsv() {
-    if (!file) return;
-    clearMessages();
-    setStatus('⏳ Extracting CSV… this may take several minutes.');
-    document.getElementById('results').style.display = 'none';
-
-    const fd = new FormData();
-    fd.append('file', file);
-
-    try {
       const resp = await fetch('/extract-csv', { method: 'POST', body: fd });
       const data = await resp.json();
       setStatus('');
       if (!resp.ok) { showError(data.error || 'Extraction failed'); return; }
       renderStats(data.stats);
       renderSteps(data.steps || []);
-      setStatus(`✓ Done — ${(data.steps || []).length} steps. Downloading CSV…`);
+      setStatus(`✓ Done — ${(data.steps || []).length} steps extracted. Downloading CSV…`);
       if (data.download_url) {
         setTimeout(() => { window.location.href = data.download_url; }, 500);
       }

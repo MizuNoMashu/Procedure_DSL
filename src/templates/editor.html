@@ -82,6 +82,9 @@
     tbody tr:hover { background: #f0f4ff; }
     td { padding: 4px 7px; vertical-align: middle; border-bottom: 1px solid #eee; }
 
+    .col-drag  { width: 28px; text-align: center; cursor: grab; color: #bbb; user-select: none; }
+    .col-drag:hover { color: #666; }
+    .col-drag:active { cursor: grabbing; }
     .col-id    { width: 38px; text-align: center; color: #888; }
     .col-act   { width: 120px; }
     .col-act select { width: 112px; padding: 2px 4px; font-size: 0.78rem; }
@@ -91,6 +94,10 @@
       display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .col-btns  { width: 88px; white-space: nowrap; }
+
+    tr.dragging { opacity: 0.5; }
+    tr.drag-over-top { border-top: 3px solid #4a90e2; }
+    tr.drag-over-bottom { border-bottom: 3px solid #4a90e2; }
 
     /* ── Modal overlay ────────────────────────────────────────────── */
     #modal-overlay {
@@ -113,12 +120,6 @@
     .fg .field-id { font-size: 1.1rem; font-weight: bold; color: #333; }
 
     .modal-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-    .action-warn {
-      font-size: 0.75rem; color: #996600; background: #fffbe6;
-      border: 1px solid #ffe58f; border-radius: 3px; padding: 3px 7px;
-      margin-top: 4px;
-    }
 
     .modal-footer {
       display: flex; gap: 8px; justify-content: flex-end;
@@ -172,6 +173,7 @@
   <table>
     <thead>
       <tr>
+        <th class="col-drag"></th>
         <th class="col-id">#</th>
         <th>COMPONENT</th>
         <th>COMP. DETAIL</th>
@@ -185,7 +187,7 @@
       </tr>
     </thead>
     <tbody id="steps-body">
-      <tr><td colspan="10"><div id="empty-state">No steps loaded.</div></td></tr>
+      <tr><td colspan="11"><div id="empty-state">No steps loaded.</div></td></tr>
     </tbody>
   </table>
 </div>
@@ -214,29 +216,11 @@
     <div class="modal-2col">
       <div class="fg">
         <label>ACTION <span class="req">*</span></label>
-        <select id="f-action" onchange="onActionChange(this.value)">
-          <optgroup label="Validated">
-            <option value="Place">Place</option>
-            <option value="Insert">Insert</option>
-            <option value="Screw in">Screw in</option>
-          </optgroup>
-          <optgroup label="Extended">
-            <option value="Connect">Connect</option>
-            <option value="Attach">Attach</option>
-            <option value="Solder">Solder</option>
-            <option value="Install">Install</option>
-            <option value="Mount">Mount</option>
-            <option value="Use">Use</option>
-            <option value="Charge">Charge</option>
-            <option value="Handle">Handle</option>
-            <option value="Secure">Secure</option>
-            <option value="Assemble">Assemble</option>
-            <option value="Adhere">Adhere</option>
-          </optgroup>
+        <select id="f-action">
+          <option value="Place">Place</option>
+          <option value="Insert">Insert</option>
+          <option value="Screw in">Screw in</option>
         </select>
-        <div id="action-warn" class="action-warn" style="display:none">
-          Not in validated set (Place / Insert / Screw in) — step may fail validation.
-        </div>
       </div>
       <div class="fg">
         <label>ORIENTATION <span class="hint">only if explicitly stated</span></label>
@@ -302,16 +286,13 @@ const CSV_COLS = [
   "ACTION","APPLIED TO","TOOL","TOOL DETAIL","ASSEMBLY DETAIL"
 ];
 const VALIDATED_ACTIONS = new Set(["Place","Insert","Screw in"]);
-const ALL_ACTIONS = [
-  "Place","Insert","Screw in",
-  "Connect","Attach","Solder","Install","Mount",
-  "Use","Charge","Handle","Secure","Assemble","Adhere"
-];
+const ALL_ACTIONS = ["Place","Insert","Screw in"];
 
 // ── State ────────────────────────────────────────────────────────────────────
 let steps = [];
 let currentFile = '';
 let editIdx = null;
+let dragSourceIdx = null;
 
 // ── Init: populate CSV dropdown ───────────────────────────────────────────────
 (async () => {
@@ -407,12 +388,18 @@ function applyRows(rows, filename) {
 function renderTable() {
   const tbody = document.getElementById('steps-body');
   if (!steps.length) {
-    tbody.innerHTML = '<tr><td colspan="10"><div id="empty-state">No steps. Click "+ Add Step" to create one.</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11"><div id="empty-state">No steps. Click "+ Add Step" to create one.</div></td></tr>';
     updateCount();
     return;
   }
   tbody.innerHTML = steps.map((s, i) => `
-    <tr>
+    <tr draggable="true" data-idx="${i}"
+        ondragstart="handleDragStart(event, ${i})"
+        ondragover="handleDragOver(event)"
+        ondrop="handleDrop(event, ${i})"
+        ondragend="handleDragEnd(event)"
+        ondragleave="handleDragLeave(event)">
+      <td class="col-drag" title="Drag to reorder">&#8942;&#8942;</td>
       <td class="col-id">${esc(s.ID || i+1)}</td>
       <td class="col-text"><span title="${esc(s['COMPONENT'])}">${esc(s['COMPONENT']) || '<em style="color:#bbb">—</em>'}</span></td>
       <td class="col-text"><span title="${esc(s['COMPONENT DETAIL'])}">${esc(s['COMPONENT DETAIL'])}</span></td>
@@ -431,14 +418,12 @@ function renderTable() {
 }
 
 function renderActionCell(i, current) {
-  const warn = current && !VALIDATED_ACTIONS.has(current) ? ' style="color:#996600"' : '';
+  // Ensure current action is one of the validated ones
+  const validCurrent = VALIDATED_ACTIONS.has(current) ? current : 'Place';
   let opts = ALL_ACTIONS.map(a =>
-    `<option${a === current ? ' selected' : ''}>${esc(a)}</option>`
+    `<option${a === validCurrent ? ' selected' : ''}>${esc(a)}</option>`
   ).join('');
-  // If current value not in known list, add it
-  if (current && !ALL_ACTIONS.includes(current))
-    opts += `<option selected${warn}>${esc(current)}</option>`;
-  return `<select${warn} title="${esc(current)}"
+  return `<select title="${esc(validCurrent)}"
     onchange="steps[${i}]['ACTION']=this.value;renderTable()">${opts}</select>`;
 }
 
@@ -489,28 +474,14 @@ function openEdit(i) {
   document.getElementById('f-tool-detail').value  = s['TOOL DETAIL'] || '';
   document.getElementById('f-asm-detail').value   = s['ASSEMBLY DETAIL'] || '';
 
-  // Set action — ensure the option exists (might be a custom value)
+  // Set action
   const sel = document.getElementById('f-action');
   const val = s['ACTION'] || 'Place';
-  let found = false;
-  for (const opt of sel.options) if (opt.value === val) { found = true; break; }
-  if (!found) {
-    const opt = document.createElement('option');
-    opt.value = opt.textContent = val;
-    opt.dataset.custom = '1';
-    sel.appendChild(opt);
-  }
-  sel.value = val;
-  onActionChange(val);
+  // If action is not in the validated set, default to 'Place'
+  sel.value = VALIDATED_ACTIONS.has(val) ? val : 'Place';
 
   document.getElementById('modal-overlay').style.display = '';
   setTimeout(() => document.getElementById('f-component').focus(), 50);
-}
-
-// ── Action warning ────────────────────────────────────────────────────────────
-function onActionChange(val) {
-  document.getElementById('action-warn').style.display =
-    VALIDATED_ACTIONS.has(val) ? 'none' : '';
 }
 
 // ── Edit modal: save ──────────────────────────────────────────────────────────
@@ -603,6 +574,87 @@ function csvQuote(v) {
   return (s.includes(',') || s.includes('"') || s.includes('\n'))
     ? '"' + s.replace(/"/g, '""') + '"'
     : s;
+}
+
+// ── Drag and Drop handlers ────────────────────────────────────────────────────
+let dropPosition = null; // 'before' or 'after'
+
+function handleDragStart(e, idx) {
+  dragSourceIdx = idx;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', idx);
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  const row = e.currentTarget;
+  if (row.classList.contains('dragging')) return false;
+
+  // Determine if mouse is in top half or bottom half of the row
+  const rect = row.getBoundingClientRect();
+  const midpoint = rect.top + rect.height / 2;
+  const mouseY = e.clientY;
+
+  // Clear previous classes
+  row.classList.remove('drag-over-top', 'drag-over-bottom');
+
+  if (mouseY < midpoint) {
+    row.classList.add('drag-over-top');
+    dropPosition = 'before';
+  } else {
+    row.classList.add('drag-over-bottom');
+    dropPosition = 'after';
+  }
+
+  return false;
+}
+
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over-top', 'drag-over-bottom');
+}
+
+function handleDrop(e, targetIdx) {
+  e.stopPropagation();
+  e.preventDefault();
+
+  const row = e.currentTarget;
+  row.classList.remove('drag-over-top', 'drag-over-bottom');
+
+  if (dragSourceIdx === null || dragSourceIdx === targetIdx) return;
+
+  // Calculate actual insert position based on drop position
+  let insertIdx = targetIdx;
+  if (dropPosition === 'after') {
+    insertIdx = targetIdx + 1;
+  }
+
+  // Adjust if dragging from before the target
+  if (dragSourceIdx < insertIdx) {
+    insertIdx--;
+  }
+
+  // Reorder the steps array
+  const movedStep = steps.splice(dragSourceIdx, 1)[0];
+  steps.splice(insertIdx, 0, movedStep);
+
+  // Renumber IDs
+  steps.forEach((s, idx) => s.ID = String(idx + 1));
+
+  renderTable();
+  dropPosition = null;
+  return false;
+}
+
+function handleDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('tr.drag-over-top, tr.drag-over-bottom').forEach(r => {
+    r.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+  dragSourceIdx = null;
+  dropPosition = null;
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────

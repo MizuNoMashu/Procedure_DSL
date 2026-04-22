@@ -82,35 +82,6 @@ def health():
     })
 
 
-@api_bp.route('/extract', methods=['POST'])
-def extract():
-    """Extract assembly steps from uploaded document. Returns JSON."""
-    file_path = filename = None
-    is_temp = False
-    try:
-        _ensure_llm_loaded()
-        file_path, filename, is_temp = _get_file(request)
-        config = current_app.config['PIPELINE_CONFIG']
-
-        steps, stats = run_pipeline(file_path, language_model, config)
-
-        return jsonify({
-            "filename": filename,
-            "stats": stats,
-            "steps": [s.model_dump() for s in steps],
-        })
-
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if is_temp and file_path and os.path.exists(file_path):
-            os.unlink(file_path)
-
-
 @api_bp.route('/extract-csv', methods=['POST'])
 def extract_csv():
     """Extract assembly steps, save CSV, return JSON with download URL."""
