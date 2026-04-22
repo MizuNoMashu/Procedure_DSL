@@ -17,7 +17,7 @@ from flask import Blueprint, jsonify, request, current_app, send_file, render_te
 
 from models.llm import language_model
 from pipeline.runner import run_pipeline
-from pipeline.csv_writer import steps_to_csv, CSV_COLUMNS
+from pipeline.csv_writer import steps_to_csv, steps_to_csv_with_confidence, CSV_COLUMNS
 
 api_bp = Blueprint('api', __name__)
 
@@ -93,7 +93,7 @@ def extract_csv():
         config = current_app.config['PIPELINE_CONFIG']
 
         steps, stats = run_pipeline(file_path, language_model, config)
-        csv_string = steps_to_csv(steps)
+        csv_string = steps_to_csv_with_confidence(steps)  # includes CONFIDENCE col for editor; stripped on save
 
         csv_filename = Path(filename).stem + "_procedure.csv"
         csv_path = _output_dir() / csv_filename

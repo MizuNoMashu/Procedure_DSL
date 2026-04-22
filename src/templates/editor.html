@@ -94,6 +94,14 @@
       display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .col-btns  { width: 88px; white-space: nowrap; }
+    .col-conf  { width: 58px; text-align: center; }
+    .conf-badge {
+      display: inline-block; border-radius: 10px; padding: 1px 7px;
+      font-size: 0.75rem; font-weight: bold; white-space: nowrap;
+    }
+    .conf-high { background: #d4edda; color: #1a6630; }
+    .conf-mid  { background: #fff3cd; color: #856404; }
+    .conf-low  { background: #f8d7da; color: #842029; }
 
     tr.dragging { opacity: 0.5; }
     tr.drag-over-top { border-top: 3px solid #4a90e2; }
@@ -183,6 +191,7 @@
         <th>TOOL</th>
         <th>TOOL DETAIL</th>
         <th>ASSEMBLY DETAIL</th>
+        <th id="conf-th" class="col-conf" style="display:none">CONF.</th>
         <th></th>
       </tr>
     </thead>
@@ -293,6 +302,7 @@ let steps = [];
 let currentFile = '';
 let editIdx = null;
 let dragSourceIdx = null;
+let hasConfidence = false;  // true when loaded CSV contains a CONFIDENCE column
 
 // ── Init: populate CSV dropdown ───────────────────────────────────────────────
 (async () => {
@@ -371,9 +381,13 @@ function parseLine(line) {
 
 // ── Apply rows to editor state ────────────────────────────────────────────────
 function applyRows(rows, filename) {
+  hasConfidence = rows.length > 0 && 'CONFIDENCE' in rows[0];
+  document.getElementById('conf-th').style.display = hasConfidence ? '' : 'none';
+
   steps = rows.map(r => {
     const s = {};
     CSV_COLS.forEach(c => s[c] = String(r[c] ?? ''));
+    if (hasConfidence) s._conf = String(r['CONFIDENCE'] ?? '');  // preserved, never saved
     return s;
   });
   currentFile = filename;
@@ -387,8 +401,9 @@ function applyRows(rows, filename) {
 // ── Render table ──────────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('steps-body');
+  const totalCols = 11 + (hasConfidence ? 1 : 0);
   if (!steps.length) {
-    tbody.innerHTML = '<tr><td colspan="11"><div id="empty-state">No steps. Click "+ Add Step" to create one.</div></td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${totalCols}"><div id="empty-state">No steps. Click "+ Add Step" to create one.</div></td></tr>`;
     updateCount();
     return;
   }
@@ -409,12 +424,20 @@ function renderTable() {
       <td class="col-text"><span title="${esc(s['TOOL'])}">${esc(s['TOOL'])}</span></td>
       <td class="col-text"><span title="${esc(s['TOOL DETAIL'])}">${esc(s['TOOL DETAIL'])}</span></td>
       <td class="col-wide"><span title="${esc(s['ASSEMBLY DETAIL'])}">${esc(s['ASSEMBLY DETAIL'])}</span></td>
+      ${hasConfidence ? `<td class="col-conf">${confBadge(s._conf)}</td>` : ''}
       <td class="col-btns">
         <button class="sm" onclick="openEdit(${i})">Edit</button>
         <button class="sm danger" onclick="deleteStep(${i})">&#215;</button>
       </td>
     </tr>`).join('');
   updateCount();
+}
+
+function confBadge(val) {
+  const v = parseFloat(val);
+  if (isNaN(v)) return '';
+  const cls = v >= 0.8 ? 'conf-high' : v >= 0.5 ? 'conf-mid' : 'conf-low';
+  return `<span class="conf-badge ${cls}">${v.toFixed(2)}</span>`;
 }
 
 function renderActionCell(i, current) {

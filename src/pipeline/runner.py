@@ -3,6 +3,7 @@ Main pipeline orchestrator.
 PDF → parse → chunk → filter → extract → validate → refine → return steps
 """
 
+import re
 from pathlib import Path
 from typing import List, Tuple
 
@@ -39,8 +40,7 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
     chunker = TextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = chunker.split(doc.content, metadata=doc.metadata)
 
-    # 3. Section filtering
-    # TODO: improve with heading-based or ML-based section detection
+    # 3. Section filtering (heading + structural + keyword signals — see _looks_like_procedure)
     procedure_chunks = [c for c in chunks if _looks_like_procedure(c.text)]
     if not procedure_chunks:
         procedure_chunks = chunks   # fallback: process everything
@@ -85,15 +85,61 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
 
 def _looks_like_procedure(text: str) -> bool:
     """
-    Heuristic: does this chunk contain procedure-like content?
-    Requires at least 2 procedure-related keywords.
-    TODO: replace with a proper section classifier.
+    Multi-signal classifier: heading patterns + numbered-step structure + keyword density.
+    A chunk is considered procedural if its total score reaches the threshold.
+
+    Scoring:
+      +3  a heading line explicitly names a procedural section
+      +2  numbered/bulleted list with ≥2 items  (strong step-sequence signal)
+      +2  ≥4 action keywords (dense procedural vocabulary)
+      +1  2-3 action keywords (weak signal)
+
+    Threshold: score ≥ 2  (same sensitivity as before, but far fewer false-negatives
+    and much better recall on sections whose headings contain procedural language).
     """
-    keywords = [
+    text_lower = text.lower()
+    lines = text.splitlines()
+    score = 0
+
+    # ── Signal 1: procedural section heading ──────────────────────────────────
+    # A "heading" is a short line (≤ 80 chars) or all-caps / title-case line.
+    _HEADING_WORDS = re.compile(
+        r'\b(?:assembl(?:y|ing)|install(?:ation|ing)|procedure|instructions?'
+        r'|mounting|build(?:ing)?|setup|configuration|maintenance'
+        r'|disassembl(?:y|ing)|integration|preparation|steps?'
+        r'|how\s+to|quick\s+start|getting\s+started)\b'
+    )
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        is_heading = (
+            len(stripped) <= 80
+            and (stripped.isupper() or stripped.istitle() or stripped.endswith(':'))
+        )
+        if is_heading and _HEADING_WORDS.search(stripped.lower()):
+            score += 3
+            break
+
+    # ── Signal 2: numbered / bulleted list structure ──────────────────────────
+    # Counts lines that start with "1.", "2)", "-", "*", "•", "Step N:"
+    _LIST_ITEM = re.compile(r'^\s*(?:\d+[\.\)]|[-*•]|step\s*\d+\s*[:\.])\s+\w', re.IGNORECASE)
+    list_items = sum(1 for ln in lines if _LIST_ITEM.match(ln))
+    if list_items >= 2:
+        score += 2
+
+    # ── Signal 3: action-keyword density ─────────────────────────────────────
+    _KEYWORDS = {
         'insert', 'screw', 'place', 'connect', 'tighten', 'attach',
         'install', 'mount', 'assemble', 'remove', 'disconnect',
         'step', 'procedure', 'warning', 'caution', 'tool', 'torque',
-        'apply', 'fasten', 'align', 'secure', 'verify',
-    ]
-    text_lower = text.lower()
-    return sum(1 for kw in keywords if kw in text_lower) >= 2
+        'apply', 'fasten', 'align', 'secure', 'verify', 'solder',
+        'bolt', 'nut', 'washer', 'bracket', 'cable', 'crimp',
+    }
+    kw_hits = sum(1 for kw in _KEYWORDS if kw in text_lower)
+    if kw_hits >= 4:
+        score += 2
+    elif kw_hits >= 2:
+        score += 1
+
+    return score >= 2

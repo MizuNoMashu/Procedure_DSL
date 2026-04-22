@@ -94,6 +94,85 @@ def _parse_llm_json(raw: str) -> list:
     return steps
 
 
+REFINE_PROMPT_TEMPLATE = """You previously extracted an assembly step from the text below, but it failed validation.
+Re-read the SAME text and return a corrected JSON array, fixing ONLY the listed errors.
+
+=== ORIGINAL TEXT ===
+{text}
+
+=== YOUR PREVIOUS (INVALID) EXTRACTION ===
+{previous_json}
+
+=== VALIDATION ERRORS TO FIX ===
+{errors}
+
+=== CORRECTION RULES ===
+- action: MUST be exactly one of "Place", "Insert", "Screw in"
+  Map verbs → Place (place/lay/set/mount/put), Insert (insert/attach/connect/install/fit/push), Screw in (screw/fasten/solder/tighten/bolt)
+  If the action was wrong, pick the closest valid one. Never leave it empty or use a different value.
+- component: the part being acted on (REQUIRED — cannot be empty or "not specified").
+  If the text does not name a part, use the most specific noun you can find.
+- All other fields: copy verbatim from text or use "" if truly not stated.
+- confidence: float 0.0–1.0, your certainty this is a real assembly step.
+
+Return ONLY a JSON array (no markdown, no explanation):"""
+
+
+def _build_steps_from_objects(raw_objects: list, evidence: str) -> List[AssemblyStep]:
+    """Shared helper: convert a list of parsed dicts into AssemblyStep objects."""
+    steps = []
+    for obj in raw_objects:
+        if not isinstance(obj, dict):
+            continue
+        try:
+            steps.append(AssemblyStep(
+                action=str(obj.get("action", "")).strip(),
+                component=str(obj.get("component", "")).strip(),
+                component_detail=str(obj.get("component_detail", "")).strip(),
+                orientation=str(obj.get("orientation", "")).strip(),
+                applied_to=str(obj.get("applied_to", "")).strip(),
+                tool=str(obj.get("tool", "")).strip(),
+                tool_detail=str(obj.get("tool_detail", "")).strip(),
+                assembly_detail=str(obj.get("assembly_detail", "")).strip(),
+                confidence=float(obj.get("confidence", 1.0)),
+                evidence=evidence[:300],
+            ))
+        except Exception:
+            pass
+    return steps
+
+
+def refine_step_with_context(step: AssemblyStep, llm, max_tokens: int = 512) -> List[AssemblyStep]:
+    """
+    Re-extract a single invalid step using a targeted prompt that includes
+    the previous extraction and the specific validation errors.
+    """
+    prev = {
+        "action": step.action,
+        "component": step.component,
+        "component_detail": step.component_detail,
+        "orientation": step.orientation,
+        "applied_to": step.applied_to,
+        "tool": step.tool,
+        "tool_detail": step.tool_detail,
+        "assembly_detail": step.assembly_detail,
+        "confidence": step.confidence,
+    }
+    errors_text = "\n".join(f"- {w}" for w in step.warnings) if step.warnings else "- Unknown validation error"
+
+    prompt = REFINE_PROMPT_TEMPLATE.format(
+        text=step.evidence or "(no source text available)",
+        previous_json=json.dumps(prev, indent=2),
+        errors=errors_text,
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.0)
+    return _build_steps_from_objects(_parse_llm_json(raw), step.evidence)
+
+
 def extract_from_chunk(chunk_text: str, llm, max_tokens: int = 1024) -> List[AssemblyStep]:
     """
     Call the LLM on a single text chunk, parse JSON output, return AssemblyStep list.
@@ -105,28 +184,4 @@ def extract_from_chunk(chunk_text: str, llm, max_tokens: int = 1024) -> List[Ass
     ]
 
     raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.1)
-    raw_objects = _parse_llm_json(raw)
-
-    steps = []
-    for obj in raw_objects:
-        if not isinstance(obj, dict):
-            continue
-        try:
-            step = AssemblyStep(
-                action=str(obj.get("action", "")).strip(),
-                component=str(obj.get("component", "")).strip(),
-                component_detail=str(obj.get("component_detail", "")).strip(),
-                orientation=str(obj.get("orientation", "")).strip(),
-                applied_to=str(obj.get("applied_to", "")).strip(),
-                tool=str(obj.get("tool", "")).strip(),
-                tool_detail=str(obj.get("tool_detail", "")).strip(),
-                assembly_detail=str(obj.get("assembly_detail", "")).strip(),
-                confidence=float(obj.get("confidence", 1.0)),
-                evidence=chunk_text[:300],
-            )
-            steps.append(step)
-        except Exception:
-            # Silently skip malformed objects
-            pass
-
-    return steps
+    return _build_steps_from_objects(_parse_llm_json(raw), chunk_text)
