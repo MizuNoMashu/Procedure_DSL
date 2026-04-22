@@ -9,9 +9,11 @@ from typing import List
 from pipeline.schema import AssemblyStep
 
 SYSTEM_PROMPT = (
-    "You are a precise technical procedure extractor. "
+    "You are a faithful technical procedure extractor. "
     "Extract assembly steps from the text and return ONLY a JSON array. "
-    "No explanations, no markdown, no code fences, just the JSON array."
+    "No explanations, no markdown, no code fences, just the JSON array. "
+    "CRITICAL: Never invent, infer, or guess field values. "
+    "If information is not explicitly stated in the text, use empty string \"\"."
 )
 
 USER_PROMPT_TEMPLATE = """Extract all assembly/procedure steps from the technical text below.
@@ -19,24 +21,39 @@ Return a JSON array where each object has EXACTLY these keys:
 "action", "component", "component_detail", "orientation", "applied_to",
 "tool", "tool_detail", "assembly_detail", "confidence"
 
-Rules:
+=== ABSOLUTE RULE: DO NOT INVENT ===
+Every field must come DIRECTLY and VERBATIM from the text.
+If something is NOT explicitly written in the text → use empty string "".
+Never infer, guess, or add information not present in the source text.
+
+=== FIELD RULES ===
 - action: MUST be one of exactly three values: "Place", "Insert", "Screw in"
-  - "Place"    → position a component onto something
-  - "Insert"   → push/fit a component into a hole or slot
-  - "Screw in" → rotate a threaded component to fasten it
-- component: name of the part being acted on (e.g. "Screw 1", "Frame 2")
-- component_detail: technical specs (e.g. "Diameter = 3mm; Length = 11mm;"), or ""
-- orientation: positioning info if mentioned (e.g. "Hole 1 = Spacer 3;"), else ""
-- applied_to: formatted as "X.Y;" where X is a component already present in the
-  assembly (introduced in a previous step) and Y is a specific point on X (e.g. "Hole 1").
-  Omit ".Y" if no specific point is mentioned (e.g. "Frame 1;").
-  Special case: if X equals the current component itself, it means "place on workbench"
-  (e.g. first step → "Frame 1;" where component is also Frame 1).
-- tool: tool name if any, else ""
-- tool_detail: tool specs if any, else ""
-- assembly_detail: extra notes, else ""
-- confidence: float 0.0-1.0, how certain you are this is a real procedure step
-- If no procedure steps are found, return []
+  Map document verbs as follows:
+  - "Place"    → place, lay, set, mount, position, put
+  - "Insert"   → insert, attach, connect, install, fit, slide, push into
+  - "Screw in" → screw, fasten, solder, tighten, bolt
+  Never skip a step because its verb is unusual. Always pick the closest action.
+  If truly ambiguous, default to "Place".
+- component: name of the part being acted on, copied verbatim from text
+- component_detail: ONLY if the text explicitly gives technical specs (dimensions,
+  materials, part numbers). If NOT stated → ""
+- orientation: ONLY if the text EXPLICITLY describes a positional or spatial
+  relationship for this step (e.g. "Rail 2 = Board", "Ensure proper orientation!").
+  Copy the exact words from the text. If orientation is NOT mentioned → ""
+  DO NOT INVENT orientation values.
+- applied_to: the target component(s) where the action is performed, as found in text.
+  Format: "ComponentName;" or "ComponentA; ComponentB;" if multiple.
+  If not stated → ""
+- tool: tool name ONLY if explicitly mentioned in text, else ""
+- tool_detail: tool specifications ONLY if explicitly stated, else ""
+- assembly_detail: any additional notes, warnings, or instructions present in the text.
+  Copy verbatim. If nothing extra → ""
+- confidence: float 0.0-1.0, your certainty that this is a real procedure step
+
+=== COVERAGE ===
+Extract EVERY step present in the text. Do not skip steps.
+If the text has 10 steps, return 10 objects.
+If no procedure steps are found, return [].
 
 Text:
 {text}

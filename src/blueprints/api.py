@@ -7,6 +7,8 @@ GET  /health       → service status
 GET  /download-csv/<filename> → download saved CSV
 """
 
+import csv as _csv_mod
+import io as _io
 import os
 import tempfile
 from pathlib import Path
@@ -15,7 +17,7 @@ from flask import Blueprint, jsonify, request, current_app, send_file, render_te
 
 from models.llm import language_model
 from pipeline.runner import run_pipeline
-from pipeline.csv_writer import steps_to_csv
+from pipeline.csv_writer import steps_to_csv, CSV_COLUMNS
 
 api_bp = Blueprint('api', __name__)
 
@@ -156,3 +158,57 @@ def download_csv(filename):
     if not csv_path.exists():
         return jsonify({"error": "File not found"}), 404
     return send_file(str(csv_path), mimetype='text/csv', as_attachment=True, download_name=filename)
+
+
+# ── Editor endpoints ──────────────────────────────────────────────────────────
+
+@api_bp.route('/editor', methods=['GET'])
+def editor():
+    return render_template('editor.html')
+
+
+@api_bp.route('/list-csv', methods=['GET'])
+def list_csv_files():
+    """Return list of .csv files available in the output directory."""
+    files = sorted([f.name for f in _output_dir().glob('*.csv')])
+    return jsonify({"files": files})
+
+
+@api_bp.route('/load-csv-json/<filename>', methods=['GET'])
+def load_csv_json(filename):
+    """Load a saved CSV and return its rows as JSON."""
+    out = _output_dir().resolve()
+    path = (out / filename).resolve()
+    if not str(path).startswith(str(out)):
+        return jsonify({"error": "Invalid filename"}), 400
+    if not path.exists():
+        return jsonify({"error": "File not found"}), 404
+    rows = []
+    with open(str(path), encoding='utf-8', newline='') as f:
+        reader = _csv_mod.DictReader(f)
+        for row in reader:
+            rows.append(dict(row))
+    return jsonify({"filename": filename, "rows": rows})
+
+
+@api_bp.route('/save-csv', methods=['POST'])
+def save_csv_edit():
+    """Save edited rows (JSON) back to a CSV file in the output directory."""
+    data = request.get_json(silent=True) or {}
+    filename = data.get('filename', '').strip()
+    rows = data.get('rows', [])
+
+    if not filename or '/' in filename or '\\' in filename or not filename.endswith('.csv'):
+        return jsonify({"error": "Invalid filename — must be a .csv name without path separators"}), 400
+
+    buf = _io.StringIO()
+    writer = _csv_mod.DictWriter(
+        buf, fieldnames=CSV_COLUMNS, extrasaction='ignore', lineterminator='\n'
+    )
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({col: row.get(col, '') for col in CSV_COLUMNS})
+
+    csv_path = _output_dir() / filename
+    csv_path.write_text(buf.getvalue(), encoding='utf-8')
+    return jsonify({"ok": True, "filename": filename, "download_url": f"/download-csv/{filename}"})

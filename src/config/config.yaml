@@ -1,8 +1,8 @@
 device: cuda
 
 llm:
-  model: Qwen/Qwen2.5-3B-Instruct
-  max_tokens: 1024
+  model: google/gemma-4-E4B-it
+  max_tokens: 2048
 
 chunking:
   size: 1000

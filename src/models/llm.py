@@ -1,169 +1,222 @@
 # src/models/llm.py
 """
 Large Language Model loader and inference.
+Supports both AutoTokenizer-based models (Qwen, Phi, ...)
+and AutoProcessor-based models (Gemma 4 style).
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from flask import current_app
+
 
 class LanguageModel:
     """Wrapper per LLM"""
-    
+
     def __init__(self):
         self.model = None
-        self.tokenizer = None
-        self.pipeline = None
+        self.tokenizer = None   # può essere AutoTokenizer o AutoProcessor
         self.device = None
         self.model_name = None
-    
+        self._uses_processor = False  # True per modelli Gemma 4 style
+
     def load(self):
         """Carica modello da config"""
         config = current_app.config['RAG_CONFIG']
-        
+
         self.model_name = config['llm']['model']
         self.device = config['device']
-        
+
         print(f"📥 Loading LLM: {self.model_name}")
         print(f"   Device: {self.device}")
         print(f"   This may take a few minutes...")
-        
-        # Carica tokenizer (usa HF_HOME come cache, allineato al volume Docker)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name
-        )
 
-        # Carica modello in float16
-        # device_map="auto" funziona solo con CUDA, non con MPS o CPU
+        # Prova prima AutoProcessor (Gemma 4 style), fallback su AutoTokenizer
+        try:
+            from transformers import AutoProcessor
+            self.tokenizer = AutoProcessor.from_pretrained(self.model_name)
+            self._uses_processor = True
+            print("   Loader: AutoProcessor")
+        except Exception:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self._uses_processor = False
+            print("   Loader: AutoTokenizer")
+
+        # dtype="auto" lascia decidere al modello (bfloat16/float16/float32)
+        dtype = "auto" if self._uses_processor else torch.float16
+
         if self.device == "cuda":
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                dtype=torch.float16,
+                dtype=dtype,
                 device_map="auto",
-                low_cpu_mem_usage=True
+                low_cpu_mem_usage=True,
             )
         else:
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                dtype=torch.float16,
-                low_cpu_mem_usage=True
+                dtype=dtype,
+                low_cpu_mem_usage=True,
             )
             self.model = self.model.to(self.device)
 
-        # Crea pipeline per generazione
-        # Quando usi device_map="auto", non passare device al pipeline
-        if self.device == "cuda":
-            self.pipeline = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer
-            )
-        else:
-            pipeline_device = {"mps": "mps", "cpu": -1}.get(self.device, -1)
-            self.pipeline = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-                device=pipeline_device
-            )
-        
-        print(f"✅ LLM loaded successfully")
-        
+        print("✅ LLM loaded successfully")
         return self
-    
-    def generate(self, prompt: str, max_tokens: int = None, temperature: float = 0.7) -> str:
-        """
-        Genera testo da prompt.
-        
-        Args:
-            prompt: Input prompt
-            max_tokens: Max tokens da generare (None = usa config)
-            temperature: Temperature (0-1, più alto = più creativo)
-        
-        Returns:
-            Generated text
-        """
-        if self.pipeline is None:
-            raise RuntimeError("Model not loaded. Call load() first.")
-        
-        config = current_app.config['RAG_CONFIG']
-        max_tokens = max_tokens or config['llm']['max_tokens']
-        
-        # Genera
-        result = self.pipeline(
-            prompt,
-            max_new_tokens=max_tokens,
-            temperature=temperature,
-            do_sample=True,
-            top_p=0.95,
-            num_return_sequences=1,
-            eos_token_id=self.tokenizer.eos_token_id,
-            pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-        )
-        
-        # Estrai testo generato
-        generated_text = result[0]['generated_text']
-        
-        # Rimuovi il prompt dall'output (vogliamo solo la risposta)
-        if generated_text.startswith(prompt):
-            generated_text = generated_text[len(prompt):].strip()
-        
-        return generated_text
-    
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def chat(self, messages: list, max_tokens: int = None, temperature: float = 0.7) -> str:
         """
         Chat-style generation.
-        
-        Args:
-            messages: List of dicts [{"role": "user", "content": "..."}]
-            max_tokens: Max tokens
-            temperature: Temperature
-        
-        Returns:
-            Generated response
+        messages: [{"role": "system"|"user"|"assistant", "content": "..."}]
         """
-        # Formatta messages in prompt
-        prompt = self._format_chat_prompt(messages)
-        
-        return self.generate(prompt, max_tokens, temperature)
-    
-    def _format_chat_prompt(self, messages: list) -> str:
-        """
-        Formatta messaggi usando il chat template del tokenizer se disponibile
-        (es. Qwen2.5, TinyLlama, ecc.), altrimenti fallback semplice.
-        """
-        if getattr(self.tokenizer, 'chat_template', None):
-            return self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
+        if self.model is None:
+            raise RuntimeError("Model not loaded. Call load() first.")
 
-        # Fallback generico
-        prompt_parts = []
-        for msg in messages:
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            if role == 'user':
-                prompt_parts.append(f"User: {content}")
-            elif role == 'assistant':
-                prompt_parts.append(f"Assistant: {content}")
-            elif role == 'system':
-                prompt_parts.append(f"System: {content}")
-        prompt_parts.append("Assistant:")
-        return "\n".join(prompt_parts)
-    
+        config = current_app.config['RAG_CONFIG']
+        max_tokens = max_tokens or config['llm']['max_tokens']
+
+        prompt_text = self._apply_template(messages)
+
+        if self._uses_processor:
+            return self._generate_processor(prompt_text, max_tokens, temperature)
+        else:
+            return self._generate_tokenizer(prompt_text, max_tokens, temperature)
+
+    # kept for backward compat
+    def generate(self, prompt: str, max_tokens: int = None, temperature: float = 0.7) -> str:
+        config = current_app.config['RAG_CONFIG']
+        max_tokens = max_tokens or config['llm']['max_tokens']
+        if self._uses_processor:
+            return self._generate_processor(prompt, max_tokens, temperature)
+        else:
+            return self._generate_tokenizer(prompt, max_tokens, temperature)
+
     def get_info(self) -> dict:
-        """Info sul modello"""
         if self.model is None:
             return {"loaded": False}
-        
         return {
             "loaded": True,
             "model_name": self.model_name,
             "device": self.device,
-            "parameters": sum(p.numel() for p in self.model.parameters()) / 1e9  # in billions
+            "parameters": sum(p.numel() for p in self.model.parameters()) / 1e9,
         }
+
+    # ------------------------------------------------------------------
+    # Internal: template formatting
+    # ------------------------------------------------------------------
+
+    def _apply_template(self, messages: list) -> str:
+        """Applica il chat template, gestendo modelli senza ruolo 'system'."""
+        has_template = getattr(self.tokenizer, 'chat_template', None) or \
+                       hasattr(self.tokenizer, 'apply_chat_template')
+        if not has_template:
+            return self._fallback_template(messages)
+
+        # Prova prima con enable_thinking=False (Gemma 4 style)
+        for kwargs in [
+            {"tokenize": False, "add_generation_prompt": True, "enable_thinking": False},
+            {"tokenize": False, "add_generation_prompt": True},
+        ]:
+            try:
+                return self.tokenizer.apply_chat_template(messages, **kwargs)
+            except TypeError:
+                continue  # parametro non supportato, riprova senza
+            except Exception:
+                break      # errore diverso (es. ruolo non supportato), gestisci sotto
+
+        # Fallback: merge system nel primo user (per modelli senza ruolo system)
+        merged = self._merge_system_into_user(messages)
+        for kwargs in [
+            {"tokenize": False, "add_generation_prompt": True, "enable_thinking": False},
+            {"tokenize": False, "add_generation_prompt": True},
+        ]:
+            try:
+                return self.tokenizer.apply_chat_template(merged, **kwargs)
+            except TypeError:
+                continue
+            except Exception:
+                break
+
+        return self._fallback_template(messages)
+
+    def _merge_system_into_user(self, messages: list) -> list:
+        merged, system_text = [], ""
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_text = msg["content"]
+            elif msg.get("role") == "user" and system_text:
+                merged.append({"role": "user", "content": system_text + "\n\n" + msg["content"]})
+                system_text = ""
+            else:
+                merged.append(msg)
+        return merged
+
+    def _fallback_template(self, messages: list) -> str:
+        parts = []
+        for msg in messages:
+            role, content = msg.get("role", "user"), msg.get("content", "")
+            if role == "system":
+                parts.append(f"System: {content}")
+            elif role == "user":
+                parts.append(f"User: {content}")
+            elif role == "assistant":
+                parts.append(f"Assistant: {content}")
+        parts.append("Assistant:")
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Internal: generation backends
+    # ------------------------------------------------------------------
+
+    def _generate_processor(self, prompt_text: str, max_tokens: int, temperature: float) -> str:
+        """Generazione con AutoProcessor (Gemma 4 style)."""
+        inputs = self.tokenizer(text=prompt_text, return_tensors="pt").to(self.model.device)
+        input_len = inputs["input_ids"].shape[-1]
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=max_tokens,
+                do_sample=temperature > 0,
+                temperature=temperature if temperature > 0 else 1.0,
+                top_p=0.95,
+            )
+
+        has_parse = hasattr(self.tokenizer, 'parse_response')
+        response = self.tokenizer.decode(
+            outputs[0][input_len:],
+            skip_special_tokens=not has_parse,  # False solo per Gemma 4 (serve parse_response)
+        )
+
+        if has_parse:
+            return self.tokenizer.parse_response(response)
+        return response.strip()
+
+    def _generate_tokenizer(self, prompt_text: str, max_tokens: int, temperature: float) -> str:
+        """Generazione con AutoTokenizer (Qwen, Phi, ecc.)."""
+        inputs = self.tokenizer(prompt_text, return_tensors="pt").to(self.model.device)
+        input_len = inputs["input_ids"].shape[-1]
+
+        eos_id = getattr(self.tokenizer, 'eos_token_id', None)
+        pad_id = getattr(self.tokenizer, 'pad_token_id', None) or eos_id
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=max_tokens,
+                do_sample=temperature > 0,
+                temperature=temperature if temperature > 0 else 1.0,
+                top_p=0.95,
+                eos_token_id=eos_id,
+                pad_token_id=pad_id,
+            )
+
+        new_tokens = outputs[0][input_len:]
+        return self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
 
 # Global instance
 language_model = LanguageModel()
