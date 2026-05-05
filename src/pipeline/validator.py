@@ -6,7 +6,7 @@ Returns (valid_steps, invalid_steps).
 from typing import List, Tuple
 from pipeline.schema import AssemblyStep
 
-ALLOWED_ACTIONS = {"Place", "Insert", "Screw in"}
+ALLOWED_ACTIONS = {"Place", "Insert", "Screw in", "Connect", "Solder", "Apply", "Remove"}
 
 
 def validate_steps(

@@ -112,11 +112,19 @@ class AssemblyStep:
 
         match self.action:
             case "Place":
-                final_detail+= "Place in "
+                final_detail += "Place in "
             case "Insert":
-                final_detail+= "Insert in "
+                final_detail += "Insert in "
             case "Screw in":
-                final_detail+= "Screw in "
+                final_detail += "Screw in "
+            case "Connect":
+                final_detail += "Connect to "
+            case "Solder":
+                final_detail += "Solder to "
+            case "Apply":
+                final_detail += "Apply to "
+            case "Remove":
+                final_detail += "Remove from "
             case _:
                 pass
 

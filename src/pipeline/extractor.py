@@ -4,6 +4,7 @@ LLM is prompted to return JSON; output is parsed into AssemblyStep instances.
 """
 
 import json
+import re
 from typing import List, Optional
 from pathlib import Path
 
@@ -78,16 +79,23 @@ If something is NOT explicitly written in the text → use empty string "".
 Never infer, guess, or add information not present in the source text.
 
 === FIELD RULES ===
-- action: MUST be one of exactly three values: "Place", "Insert", "Screw in"
+- action: MUST be one of: "Place", "Insert", "Screw in", "Connect", "Solder", "Apply", "Remove"
   Map document verbs as follows:
-  - "Place"    → place, lay, set, mount, position, put
-  - "Insert"   → insert, attach, connect, install, fit, slide, push into
-  - "Screw in" → screw, fasten, solder, tighten, bolt
+  - "Place"    → place, lay, set, mount, position, put, install (general placement)
+  - "Insert"   → insert, fit, slide, push into, load, plug in (physical insertion into a hole/slot)
+  - "Screw in" → screw, bolt, tighten, fasten, torque
+  - "Connect"  → connect, attach, plug, wire, cable, crimp, link (electrical or mechanical coupling)
+  - "Solder"   → solder, weld, braze
+  - "Apply"    → apply, spread, coat, add (adhesive, grease, paste, lubricant, threadlocker)
+  - "Remove"   → remove, detach, unscrew, disconnect, pull out, extract, take off
   Never skip a step because its verb is unusual. Always pick the closest action.
   If truly ambiguous, default to "Place".
-- component: name of the part being acted on, copied verbatim from text
-- component_detail: ONLY if the text explicitly gives technical specs (dimensions,
-  materials, part numbers). If NOT stated → ""
+- component: MUST be a single part name copied verbatim from the text.
+  If a step mentions multiple DIFFERENT parts (e.g. "insert screw and washer"),
+  return one JSON object per part type.
+- component_detail: technical specs (dimensions, material, part number) if explicitly stated,
+  else "". If multiple identical parts are mentioned (e.g. "4 M3 screws"), write quantity
+  here as "x4" and use the singular name in component. If NOT stated → ""
 - orientation: ONLY if the text EXPLICITLY describes a positional or spatial
   relationship for this step (e.g. "Rail 2 = Board", "Ensure proper orientation!").
   Copy the exact words from the text. If orientation is NOT mentioned → ""
@@ -158,8 +166,11 @@ Re-read the SAME text and return a corrected JSON array, fixing ONLY the listed 
 {errors}
 
 === CORRECTION RULES ===
-- action: MUST be exactly one of "Place", "Insert", "Screw in"
-  Map verbs → Place (place/lay/set/mount/put), Insert (insert/attach/connect/install/fit/push), Screw in (screw/fasten/solder/tighten/bolt)
+- action: MUST be exactly one of "Place", "Insert", "Screw in", "Connect", "Solder", "Apply", "Remove"
+  Place→(place/lay/set/mount/put), Insert→(insert/fit/slide/push into/plug in),
+  Screw in→(screw/bolt/tighten/fasten/torque), Connect→(connect/attach/plug/wire/crimp),
+  Solder→(solder/weld/braze), Apply→(apply/spread/coat/add adhesive/grease),
+  Remove→(remove/detach/unscrew/disconnect/pull out/extract)
   If the action was wrong, pick the closest valid one. Never leave it empty or use a different value.
 - component: the part being acted on (REQUIRED — cannot be empty or "not specified").
   If the text does not name a part, use the most specific noun you can find.
@@ -167,6 +178,63 @@ Re-read the SAME text and return a corrected JSON array, fixing ONLY the listed 
 - confidence: float 0.0–1.0, your certainty this is a real assembly step.
 
 Return ONLY a JSON array (no markdown, no explanation):"""
+
+
+# Quantity patterns in component name: "4 M3 screw", "4x M3 screw", "M3 screw x4"
+_QTY_PREFIX_RE = re.compile(r'^(\d+)(?:\s+|[xX×]\s*)(.+)$')
+_QTY_SUFFIX_RE = re.compile(r'^(.+?)\s+[xX×]\s*(\d+)$')
+_QTY_DETAIL_RE = re.compile(r'^\s*[xX×]?\s*(\d+)\s*[xX×]?\s*$')
+
+
+def _normalize_component(steps: List['AssemblyStep']) -> List['AssemblyStep']:
+    """
+    Two normalizations applied after LLM parsing:
+
+    1. Quantity extraction: if `component` encodes a count (e.g. "4 M3 screw",
+       "M3 screw x4") or `component_detail` is a bare number ("x4", "4"),
+       strip the quantity and store it as "xN" in `component_detail`.
+
+    2. Multi-component split: if `component` contains comma-separated names
+       (LLM bundled several parts), create one step per component.
+       Only the first part keeps the original `component_detail`.
+    """
+    result = []
+    for step in steps:
+        component = step.component.strip()
+        detail = step.component_detail.strip()
+
+        # ── 1. normalise quantity ─────────────────────────────────────────
+        m = _QTY_PREFIX_RE.match(component)
+        if m and int(m.group(1)) < 100:
+            qty_tag = f"x{m.group(1)}"
+            component = m.group(2).strip()
+            detail = f"{qty_tag} {detail}".strip() if detail else qty_tag
+        else:
+            m2 = _QTY_SUFFIX_RE.match(component)
+            if m2 and int(m2.group(2)) < 100:
+                qty_tag = f"x{m2.group(2)}"
+                component = m2.group(1).strip()
+                detail = f"{qty_tag} {detail}".strip() if detail else qty_tag
+            elif detail:
+                md = _QTY_DETAIL_RE.match(detail)
+                if md and int(md.group(1)) > 1:
+                    detail = f"x{md.group(1)}"
+
+        # ── 2. split comma-separated component names ──────────────────────
+        parts = [p.strip() for p in component.split(',') if p.strip()]
+        if len(parts) <= 1:
+            if component != step.component or detail != step.component_detail:
+                step = step.model_copy(deep=True, update={
+                    "component": component, "component_detail": detail
+                })
+            result.append(step)
+        else:
+            for i, part in enumerate(parts):
+                result.append(step.model_copy(deep=True, update={
+                    "component": part,
+                    "component_detail": detail if i == 0 else "",
+                }))
+    return result
 
 
 def _build_steps_from_objects(
@@ -232,8 +300,9 @@ def refine_step_with_context(step: AssemblyStep, llm, max_tokens: int = 512) -> 
     ]
     raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.0,
                    json_schema=_STEPS_ARRAY_SCHEMA)
-    return _build_steps_from_objects(_parse_llm_json(raw), source,
-                                     step.source_chunk_index, step.source_page)
+    return _normalize_component(_build_steps_from_objects(
+        _parse_llm_json(raw), source, step.source_chunk_index, step.source_page
+    ))
 
 
 def extract_from_chunk(
@@ -259,12 +328,16 @@ def extract_from_chunk(
 
     raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.1,
                    json_schema=_STEPS_ARRAY_SCHEMA)
-    steps = _build_steps_from_objects(_parse_llm_json(raw), chunk_text, chunk_index, source_page)
+    steps = _normalize_component(
+        _build_steps_from_objects(_parse_llm_json(raw), chunk_text, chunk_index, source_page)
+    )
 
     # Retry once at temperature=0 if the output was empty or unparseable
     if not steps:
         raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.0,
                        json_schema=_STEPS_ARRAY_SCHEMA)
-        steps = _build_steps_from_objects(_parse_llm_json(raw), chunk_text, chunk_index, source_page)
+        steps = _normalize_component(
+            _build_steps_from_objects(_parse_llm_json(raw), chunk_text, chunk_index, source_page)
+        )
 
     return steps

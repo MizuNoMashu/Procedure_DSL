@@ -83,8 +83,9 @@
     }
   ],
   "notes": [
-    "Examples show the three allowed actions: Place, Insert, Screw in",
-    "component_detail uses semicolon-separated key=value pairs",
+    "Allowed actions: Place, Insert, Screw in, Connect, Solder, Apply, Remove",
+    "component must be a SINGLE part name — return one object per part type",
+    "component_detail uses semicolon-separated key=value pairs; quantity as 'x4'",
     "applied_to uses semicolon separation for multiple targets",
     "Empty fields are represented as empty strings, not null or omitted",
     "assembly_detail contains extra instructions when present in source text"
