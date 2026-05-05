@@ -5,6 +5,7 @@ LLM is prompted to return JSON; output is parsed into AssemblyStep instances.
 
 import json
 from typing import List
+from pathlib import Path
 
 from pipeline.schema import AssemblyStep
 
@@ -16,11 +17,37 @@ SYSTEM_PROMPT = (
     "If information is not explicitly stated in the text, use empty string \"\"."
 )
 
+
+def _load_few_shot_examples() -> str:
+    """Load few-shot examples from JSON file and format them as a prompt section."""
+    examples_path = Path(__file__).parent.parent / "examples" / "few_shot_examples.json"
+
+    if not examples_path.exists():
+        return ""
+
+    try:
+        with open(examples_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        examples_text = "\n=== EXAMPLES OF CORRECT EXTRACTION ===\n"
+        for i, example in enumerate(data.get("examples", []), 1):
+            input_text = example.get("input_text", "")
+            output_json = json.dumps(example.get("output", []), indent=2)
+            examples_text += f"\nExample {i}:\nInput text: {input_text}\nOutput JSON:\n{output_json}\n"
+
+        examples_text += "\n=== NOW EXTRACT FROM THE ACTUAL TEXT ===\n"
+        return examples_text
+    except Exception:
+        return ""  # Silently fail if examples can't be loaded
+
+
+FEW_SHOT_EXAMPLES = _load_few_shot_examples()
+
 USER_PROMPT_TEMPLATE = """Extract all assembly/procedure steps from the technical text below.
 Return a JSON array where each object has EXACTLY these keys:
 "action", "component", "component_detail", "orientation", "applied_to",
 "tool", "tool_detail", "assembly_detail", "confidence"
-
+{few_shot_examples}
 === ABSOLUTE RULE: DO NOT INVENT ===
 Every field must come DIRECTLY and VERBATIM from the text.
 If something is NOT explicitly written in the text → use empty string "".
@@ -180,7 +207,10 @@ def extract_from_chunk(chunk_text: str, llm, max_tokens: int = 1024) -> List[Ass
     """
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": USER_PROMPT_TEMPLATE.format(text=chunk_text)},
+        {"role": "user", "content": USER_PROMPT_TEMPLATE.format(
+            few_shot_examples=FEW_SHOT_EXAMPLES,
+            text=chunk_text
+        )},
     ]
 
     raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.1)

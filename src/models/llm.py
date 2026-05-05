@@ -6,8 +6,9 @@ and AutoProcessor-based models (Gemma 4 style).
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, AutoModelForImageTextToText
 from flask import current_app
+torch.cuda.empty_cache()
 
 
 class LanguageModel:
@@ -58,7 +59,7 @@ class LanguageModel:
             # Carica con bfloat16 e CPU offloading automatico se necessario
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                torch_dtype=torch.bfloat16,
+                dtype="auto",
                 device_map="auto",  # Distribuisce automaticamente tra GPU e CPU
                 low_cpu_mem_usage=True,
             )
@@ -67,7 +68,7 @@ class LanguageModel:
             dtype = torch.float16
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                torch_dtype=dtype,
+                dtype="auto",
                 low_cpu_mem_usage=True,
             )
             self.model = self.model.to(self.device)

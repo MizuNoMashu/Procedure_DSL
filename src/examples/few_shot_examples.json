@@ -1,0 +1,92 @@
+{
+  "description": "Few-shot examples for assembly step extraction. These examples teach the LLM the correct format and extraction rules.",
+  "examples": [
+    {
+      "input_text": "Place Frame 1 on the Workstation. Frame 1 is the lower frame.",
+      "output": [
+        {
+          "action": "Place",
+          "component": "Frame 1",
+          "component_detail": "Type = Lower;",
+          "orientation": "",
+          "applied_to": "Frame 1;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "Place Frame 1 on the Workstation",
+          "confidence": 1.0
+        }
+      ]
+    },
+    {
+      "input_text": "Insert Screw 1 into Hole 1 of Frame 1 using a Screwdriver with CR-V 2.0mm tip. The screw has a hexagonal head, 3mm diameter and 11mm length.",
+      "output": [
+        {
+          "action": "Insert",
+          "component": "Screw 1",
+          "component_detail": "Head = Hexagonal; Diameter = 3mm; Length = 11mm;",
+          "orientation": "",
+          "applied_to": "Frame 1.Hole 1;",
+          "tool": "Screwdriver",
+          "tool_detail": "Tip = CR-V 2.0mm;",
+          "assembly_detail": "",
+          "confidence": 1.0
+        }
+      ]
+    },
+    {
+      "input_text": "Fasten Spacer 1 onto Screw 1 with a 3mm wrench. The spacer has a hexagonal body, is threaded, 3mm diameter and 10mm length.",
+      "output": [
+        {
+          "action": "Screw in",
+          "component": "Spacer 1",
+          "component_detail": "Body = Hexagonal; Threaded = True; Diameter = 3mm; Length = 10mm;",
+          "orientation": "",
+          "applied_to": "Screw 1;",
+          "tool": "Wrench",
+          "tool_detail": "Diameter = 3mm;",
+          "assembly_detail": "",
+          "confidence": 1.0
+        }
+      ]
+    },
+    {
+      "input_text": "Position Rail 1 between Frame 1 Corner 1 and Frame 2 Corner 1. Ensure Rail 1 has no plunger and is 113.5mm long.",
+      "output": [
+        {
+          "action": "Place",
+          "component": "Rail 1",
+          "component_detail": "Plunger = False; Length = 113.5mm;",
+          "orientation": "",
+          "applied_to": "Frame 1.Corner 1; Frame 2.Corner 1;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 1.0
+        }
+      ]
+    },
+    {
+      "input_text": "Install Card 1 (Payload type) onto Bracket 1, Bracket 2, Bracket 3, and Bracket 4.",
+      "output": [
+        {
+          "action": "Insert",
+          "component": "Card 1",
+          "component_detail": "Type = Payload;",
+          "orientation": "",
+          "applied_to": "Bracket 1; Bracket 2; Bracket 3; Bracket 4;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 1.0
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Examples show the three allowed actions: Place, Insert, Screw in",
+    "component_detail uses semicolon-separated key=value pairs",
+    "applied_to uses semicolon separation for multiple targets",
+    "Empty fields are represented as empty strings, not null or omitted",
+    "assembly_detail contains extra instructions when present in source text"
+  ]
+}
