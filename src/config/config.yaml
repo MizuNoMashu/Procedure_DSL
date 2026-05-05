@@ -10,6 +10,6 @@ chunking:
   batch_max_chars: 4000   # combine adjacent chunks up to this char count per LLM call
 
 extraction:
-  min_confidence: 0.9   # steps below this are flagged invalid
+  min_confidence: 0.4   # steps below this are flagged invalid
   refine_invalid: true  # run a second LLM pass on invalid steps
 

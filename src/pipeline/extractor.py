@@ -93,9 +93,10 @@ Never infer, guess, or add information not present in the source text.
 - component: MUST be a single part name copied verbatim from the text.
   If a step mentions multiple DIFFERENT parts (e.g. "insert screw and washer"),
   return one JSON object per part type.
-- component_detail: technical specs (dimensions, material, part number) if explicitly stated,
-  else "". If multiple identical parts are mentioned (e.g. "4 M3 screws"), write quantity
-  here as "x4" and use the singular name in component. If NOT stated → ""
+- component_detail: technical specs (dimensions, material, part number, type, quantity) if explicitly stated, else "".
+  Format: "Key = Value; Key = Value;" (e.g. "Head = Hexagonal; Diameter = 3mm; Length = 11mm;").
+  If multiple identical parts are mentioned (e.g. "4 M3 screws"), add "Quantity = x4;" and use the singular name in component.
+  If NOT stated → ""
 - orientation: ONLY if the text EXPLICITLY describes a positional or spatial
   relationship for this step (e.g. "Rail 2 = Board", "Ensure proper orientation!").
   Copy the exact words from the text. If orientation is NOT mentioned → ""
@@ -104,7 +105,8 @@ Never infer, guess, or add information not present in the source text.
   Format: "ComponentName;" or "ComponentA; ComponentB;" if multiple.
   If not stated → ""
 - tool: tool name ONLY if explicitly mentioned in text, else ""
-- tool_detail: tool specifications ONLY if explicitly stated, else ""
+- tool_detail: tool specifications ONLY if explicitly stated, else "".
+  Format: "Key = Value; Key = Value;" (e.g. "Tip = CR-V 2.0mm;" or "Diameter = 3mm;")
 - assembly_detail: any additional notes, warnings, or instructions present in the text.
   Copy verbatim. If nothing extra → ""
 - confidence: float 0.0-1.0, your certainty that this is a real procedure step
