@@ -80,10 +80,13 @@ class LanguageModel:
     # Public API
     # ------------------------------------------------------------------
 
-    def chat(self, messages: list, max_tokens: int = None, temperature: float = 0.7) -> str:
+    def chat(self, messages: list, max_tokens: int = None, temperature: float = 0.7,
+             json_schema: str = None) -> str:
         """
         Chat-style generation.
         messages: [{"role": "system"|"user"|"assistant", "content": "..."}]
+        json_schema: optional JSON Schema string for constrained decoding via lm-format-enforcer.
+                     Ignored if the library is not installed or _uses_processor is True.
         """
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
@@ -96,7 +99,7 @@ class LanguageModel:
         if self._uses_processor:
             return self._generate_processor(prompt_text, max_tokens, temperature)
         else:
-            return self._generate_tokenizer(prompt_text, max_tokens, temperature)
+            return self._generate_tokenizer(prompt_text, max_tokens, temperature, json_schema)
 
     # kept for backward compat
     def generate(self, prompt: str, max_tokens: int = None, temperature: float = 0.7) -> str:
@@ -212,13 +215,30 @@ class LanguageModel:
                 pass  # Fallback to direct response
         return response.strip()
 
-    def _generate_tokenizer(self, prompt_text: str, max_tokens: int, temperature: float) -> str:
-        """Generazione con AutoTokenizer (Qwen, Phi, ecc.)."""
+    def _generate_tokenizer(self, prompt_text: str, max_tokens: int, temperature: float,
+                             json_schema: str = None) -> str:
+        """Generazione con AutoTokenizer (Qwen, Phi, ecc.).
+        Se json_schema è fornito e lm-format-enforcer è installato, usa constrained decoding
+        per garantire output JSON valido senza bisogno di fallback parsing.
+        """
         inputs = self.tokenizer(prompt_text, return_tensors="pt").to(self.model.device)
         input_len = inputs["input_ids"].shape[-1]
 
         eos_id = getattr(self.tokenizer, 'eos_token_id', None)
         pad_id = getattr(self.tokenizer, 'pad_token_id', None) or eos_id
+
+        prefix_fn = None
+        if json_schema is not None:
+            try:
+                from lmformatenforcer import JsonSchemaParser
+                from lmformatenforcer.integrations.transformers import (
+                    build_transformers_prefix_allowed_tokens_fn,
+                )
+                prefix_fn = build_transformers_prefix_allowed_tokens_fn(
+                    self.tokenizer, JsonSchemaParser(json_schema)
+                )
+            except ImportError:
+                pass  # library not installed — fall back to normal generation
 
         with torch.no_grad():
             outputs = self.model.generate(
@@ -229,6 +249,7 @@ class LanguageModel:
                 top_p=0.95,
                 eos_token_id=eos_id,
                 pad_token_id=pad_id,
+                prefix_allowed_tokens_fn=prefix_fn,
             )
 
         new_tokens = outputs[0][input_len:]

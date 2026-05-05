@@ -172,8 +172,27 @@
   <span style="font-size:0.82rem;color:#444">Save as:</span>
   <input type="text" id="save-filename" placeholder="filename.csv">
   <button class="primary" onclick="saveToServer()">Save to Server</button>
+  <span class="sep">|</span>
+  <input type="text" id="dsl-project-name" placeholder="Project name"
+         style="width:160px;" title="Project name for DSL generation">
+  <button id="btn-gen-dsl" onclick="generateDSL()" title="Generate External + Internal DSL from saved CSV">Generate DSL</button>
   <span class="spacer"></span>
   <span id="step-count"></span>
+</div>
+
+<!-- DSL status bar: shown after Generate DSL is triggered -->
+<div id="dsl-bar" style="display:none; padding:8px 14px; background:#f0fff4;
+     border:1px solid #b2dfdb; border-radius:4px; margin-bottom:10px;
+     font-size:0.85rem; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+  <span id="dsl-bar-status"></span>
+  <a id="dsl-ext-link" href="#" style="display:none; text-decoration:none; color:#1a6630;
+     border:1px solid #b2dfdb; border-radius:3px; padding:3px 10px; background:#fff;">
+    &#8595; External DSL (.yml)
+  </a>
+  <a id="dsl-int-link" href="#" style="display:none; text-decoration:none; color:#1a6630;
+     border:1px solid #b2dfdb; border-radius:3px; padding:3px 10px; background:#fff;">
+    &#8595; Internal DSL (.txt)
+  </a>
 </div>
 
 <!-- Table -->
@@ -392,6 +411,11 @@ function applyRows(rows, filename) {
   });
   currentFile = filename;
   document.getElementById('save-filename').value = filename;
+  // Pre-fill project name from filename stem
+  const stem = filename.replace(/_procedure\.csv$/, '').replace(/\.csv$/, '');
+  document.getElementById('dsl-project-name').value = stem;
+  // Hide any previous DSL results
+  document.getElementById('dsl-bar').style.display = 'none';
   document.getElementById('toolbar').style.display = '';
   document.getElementById('table-wrap').style.display = '';
   renderTable();
@@ -678,6 +702,46 @@ function handleDragEnd(e) {
   });
   dragSourceIdx = null;
   dropPosition = null;
+}
+
+// ── Generate DSL ──────────────────────────────────────────────────────────────
+async function generateDSL() {
+  if (!currentFile) return showError('Save the CSV to server first, then generate DSL.');
+  const projectName = document.getElementById('dsl-project-name').value.trim();
+  if (!projectName) return showError('Enter a project name before generating DSL.');
+
+  clearMessages();
+  const bar = document.getElementById('dsl-bar');
+  const barStatus = document.getElementById('dsl-bar-status');
+  bar.style.display = 'flex';
+  barStatus.textContent = '\u23F3 Generating DSL\u2026';
+  document.getElementById('dsl-ext-link').style.display = 'none';
+  document.getElementById('dsl-int-link').style.display = 'none';
+  document.getElementById('btn-gen-dsl').disabled = true;
+
+  try {
+    const r = await fetch('/generate-dsl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv_filename: currentFile, project_name: projectName }),
+    });
+    const d = await r.json();
+    document.getElementById('btn-gen-dsl').disabled = false;
+    if (!r.ok) {
+      barStatus.textContent = '\u26A0 ' + (d.error || 'DSL generation failed');
+      return;
+    }
+    barStatus.textContent = '\u2713 DSL generated:';
+    const extLink = document.getElementById('dsl-ext-link');
+    const intLink = document.getElementById('dsl-int-link');
+    extLink.href = d.external_url;
+    extLink.style.display = '';
+    intLink.href = d.internal_url;
+    intLink.style.display = '';
+  } catch (e) {
+    document.getElementById('btn-gen-dsl').disabled = false;
+    barStatus.textContent = '\u26A0 Network error: ' + e.message;
+  }
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────

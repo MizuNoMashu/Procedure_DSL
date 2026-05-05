@@ -4,10 +4,34 @@ LLM is prompted to return JSON; output is parsed into AssemblyStep instances.
 """
 
 import json
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
 from pipeline.schema import AssemblyStep
+
+# JSON schema passed to lm-format-enforcer for constrained decoding.
+# If the library is not installed the schema is ignored and normal parsing is used.
+_STEPS_ARRAY_SCHEMA = json.dumps({
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "action":           {"type": "string"},
+            "component":        {"type": "string"},
+            "component_detail": {"type": "string"},
+            "orientation":      {"type": "string"},
+            "applied_to":       {"type": "string"},
+            "tool":             {"type": "string"},
+            "tool_detail":      {"type": "string"},
+            "assembly_detail":  {"type": "string"},
+            "confidence":       {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        },
+        "required": [
+            "action", "component", "component_detail", "orientation",
+            "applied_to", "tool", "tool_detail", "assembly_detail", "confidence",
+        ],
+    },
+})
 
 SYSTEM_PROMPT = (
     "You are a faithful technical procedure extractor. "
@@ -145,7 +169,12 @@ Re-read the SAME text and return a corrected JSON array, fixing ONLY the listed 
 Return ONLY a JSON array (no markdown, no explanation):"""
 
 
-def _build_steps_from_objects(raw_objects: list, evidence: str) -> List[AssemblyStep]:
+def _build_steps_from_objects(
+    raw_objects: list,
+    source_text: str,
+    chunk_index: int = 0,
+    source_page: Optional[int] = None,
+) -> List[AssemblyStep]:
     """Shared helper: convert a list of parsed dicts into AssemblyStep objects."""
     steps = []
     for obj in raw_objects:
@@ -162,7 +191,10 @@ def _build_steps_from_objects(raw_objects: list, evidence: str) -> List[Assembly
                 tool_detail=str(obj.get("tool_detail", "")).strip(),
                 assembly_detail=str(obj.get("assembly_detail", "")).strip(),
                 confidence=float(obj.get("confidence", 1.0)),
-                evidence=evidence[:300],
+                evidence=source_text[:300],
+                source_text=source_text,
+                source_chunk_index=chunk_index,
+                source_page=source_page,
             ))
         except Exception:
             pass
@@ -173,6 +205,7 @@ def refine_step_with_context(step: AssemblyStep, llm, max_tokens: int = 512) -> 
     """
     Re-extract a single invalid step using a targeted prompt that includes
     the previous extraction and the specific validation errors.
+    Uses full source_text so the LLM has the complete original context.
     """
     prev = {
         "action": step.action,
@@ -186,9 +219,10 @@ def refine_step_with_context(step: AssemblyStep, llm, max_tokens: int = 512) -> 
         "confidence": step.confidence,
     }
     errors_text = "\n".join(f"- {w}" for w in step.warnings) if step.warnings else "- Unknown validation error"
+    source = step.source_text or step.evidence or "(no source text available)"
 
     prompt = REFINE_PROMPT_TEMPLATE.format(
-        text=step.evidence or "(no source text available)",
+        text=source,
         previous_json=json.dumps(prev, indent=2),
         errors=errors_text,
     )
@@ -196,14 +230,24 @@ def refine_step_with_context(step: AssemblyStep, llm, max_tokens: int = 512) -> 
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
-    raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.0)
-    return _build_steps_from_objects(_parse_llm_json(raw), step.evidence)
+    raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.0,
+                   json_schema=_STEPS_ARRAY_SCHEMA)
+    return _build_steps_from_objects(_parse_llm_json(raw), source,
+                                     step.source_chunk_index, step.source_page)
 
 
-def extract_from_chunk(chunk_text: str, llm, max_tokens: int = 1024) -> List[AssemblyStep]:
+def extract_from_chunk(
+    chunk_text: str,
+    llm,
+    max_tokens: int = 1024,
+    chunk_index: int = 0,
+    source_page: Optional[int] = None,
+) -> List[AssemblyStep]:
     """
-    Call the LLM on a single text chunk, parse JSON output, return AssemblyStep list.
-    Invalid/unparseable LLM responses produce an empty list (no crash).
+    Call the LLM on a single text chunk (or batched text), parse JSON output,
+    return AssemblyStep list. Invalid/unparseable LLM responses produce an empty list.
+    chunk_index and source_page are stored on each step to preserve document provenance.
+    On empty/unparseable output, retries once at temperature=0.0 before giving up.
     """
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -213,5 +257,14 @@ def extract_from_chunk(chunk_text: str, llm, max_tokens: int = 1024) -> List[Ass
         )},
     ]
 
-    raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.1)
-    return _build_steps_from_objects(_parse_llm_json(raw), chunk_text)
+    raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.1,
+                   json_schema=_STEPS_ARRAY_SCHEMA)
+    steps = _build_steps_from_objects(_parse_llm_json(raw), chunk_text, chunk_index, source_page)
+
+    # Retry once at temperature=0 if the output was empty or unparseable
+    if not steps:
+        raw = llm.chat(messages=messages, max_tokens=max_tokens, temperature=0.0,
+                       json_schema=_STEPS_ARRAY_SCHEMA)
+        steps = _build_steps_from_objects(_parse_llm_json(raw), chunk_text, chunk_index, source_page)
+
+    return steps

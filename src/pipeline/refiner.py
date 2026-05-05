@@ -25,10 +25,10 @@ def refine_steps(
     seen_evidence: set = set()
 
     for step in invalid_steps:
-        evidence = step.evidence.strip()
-        if not evidence or evidence in seen_evidence:
+        source = (step.source_text or step.evidence).strip()
+        if not source or source in seen_evidence:
             continue
-        seen_evidence.add(evidence)
+        seen_evidence.add(source)
 
         new_steps = refine_step_with_context(step, llm, max_tokens)
         refined.extend(new_steps)

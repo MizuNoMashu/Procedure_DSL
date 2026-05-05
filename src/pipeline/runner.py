@@ -10,7 +10,7 @@ from typing import List, Tuple
 from document_processor.loader import DocumentLoader
 from document_processor.chunker import TextChunker
 from pipeline.extractor import extract_from_chunk
-from pipeline.validator import validate_steps, dedup_steps
+from pipeline.validator import validate_steps, dedup_steps, compute_hybrid_confidence
 from pipeline.refiner import refine_steps
 from pipeline.schema import AssemblyStep, ExtractionStats
 
@@ -27,11 +27,12 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
     Returns:
         (steps, stats) where steps is the validated, indexed list of AssemblyStep.
     """
-    max_tokens    = config.get('llm', {}).get('max_tokens', 1024)
-    chunk_size    = config.get('chunking', {}).get('size', 1000)
-    chunk_overlap = config.get('chunking', {}).get('overlap', 100)
-    min_confidence = config.get('extraction', {}).get('min_confidence', 0.5)
-    do_refine     = config.get('extraction', {}).get('refine_invalid', True)
+    max_tokens      = config.get('llm', {}).get('max_tokens', 1024)
+    chunk_size      = config.get('chunking', {}).get('size', 1000)
+    chunk_overlap   = config.get('chunking', {}).get('overlap', 100)
+    batch_max_chars = config.get('chunking', {}).get('batch_max_chars', 4000)
+    min_confidence  = config.get('extraction', {}).get('min_confidence', 0.5)
+    do_refine       = config.get('extraction', {}).get('refine_invalid', True)
 
     # 1. Load document
     doc = DocumentLoader.load(file_path)
@@ -45,19 +46,28 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
     if not procedure_chunks:
         procedure_chunks = chunks   # fallback: process everything
 
-    # 4. Extract raw steps via LLM
+    # 4. Extract raw steps via LLM (batching adjacent chunks to reduce LLM calls)
+    page_map = doc.metadata.get('page_map', [])
     raw_steps: List[AssemblyStep] = []
-    total = len(procedure_chunks)
-    for i, chunk in enumerate(procedure_chunks, 1):
-        if not chunk.text.strip():
-            continue
-        print(f"  Extracting chunk {i}/{total} (doc chunk #{chunk.index})...")
-        raw_steps.extend(extract_from_chunk(chunk.text, llm, max_tokens))
+    batches = list(_batch_chunks(procedure_chunks, batch_max_chars))
+    total = len(batches)
+    for i, (batch_start_idx, batch_start_char, batch_text) in enumerate(batches, 1):
+        source_page = _char_to_page(batch_start_char, page_map)
+        print(f"  Extracting batch {i}/{total} (chunk #{batch_start_idx}"
+              + (f", page {source_page}" if source_page else "") + ")...")
+        raw_steps.extend(extract_from_chunk(
+            batch_text, llm, max_tokens,
+            chunk_index=batch_start_idx, source_page=source_page,
+        ))
 
-    # 5. Validate
+    # 5. Apply hybrid confidence (field completeness + LLM self-report)
+    for step in raw_steps:
+        step.confidence = compute_hybrid_confidence(step)
+
+    # 6. Validate
     valid, invalid = validate_steps(raw_steps, min_confidence=min_confidence)
 
-    # 6. Single refining pass on invalid steps
+    # 7. Single refining pass on invalid steps
     num_refined = 0
     if do_refine and invalid:
         print(f"  Refining {len(invalid)} invalid steps...")
@@ -67,7 +77,8 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
         valid = dedup_steps(valid)
         num_refined = len(refined_valid)
 
-    # 7. Assign step indices
+    # 8. Sort by document position, then assign step indices
+    valid.sort(key=lambda s: s.source_chunk_index)
     for i, step in enumerate(valid, 1):
         step.step_index = i
 
@@ -81,6 +92,49 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
     ).model_dump()
 
     return valid, stats
+
+
+def _batch_chunks(chunks, max_chars: int):
+    """
+    Yield (batch_start_index, batch_start_char, combined_text) by grouping adjacent
+    non-empty chunks until their combined length exceeds max_chars.
+    batch_start_char is the char offset of the first chunk in the original document text,
+    used to look up the page number via page_map.
+    """
+    batch_texts = []
+    batch_start_idx = None
+    batch_start_char = 0
+    current_chars = 0
+
+    for chunk in chunks:
+        text = chunk.text.strip()
+        if not text:
+            continue
+        if batch_start_idx is None:
+            batch_start_idx = chunk.index
+            batch_start_char = chunk.metadata.get('start', 0)
+        if current_chars + len(text) > max_chars and batch_texts:
+            yield batch_start_idx, batch_start_char, "\n\n".join(batch_texts)
+            batch_texts = [text]
+            batch_start_idx = chunk.index
+            batch_start_char = chunk.metadata.get('start', 0)
+            current_chars = len(text)
+        else:
+            batch_texts.append(text)
+            current_chars += len(text)
+
+    if batch_texts:
+        yield batch_start_idx, batch_start_char, "\n\n".join(batch_texts)
+
+
+def _char_to_page(char_pos: int, page_map: list):
+    """Return the 1-based page number for a character position, or None if unavailable."""
+    if not page_map:
+        return None
+    for page_num, start, end in page_map:
+        if start <= char_pos < end:
+            return page_num
+    return page_map[-1][0]  # fallback: last page
 
 
 def _looks_like_procedure(text: str) -> bool:

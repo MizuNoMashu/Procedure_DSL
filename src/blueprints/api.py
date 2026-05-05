@@ -1,10 +1,12 @@
 """
 API endpoints for the extraction pipeline.
 
-POST /extract      → JSON with AssemblyStep list
-POST /extract-csv  → JSON with steps + saves CSV, triggers download via URL
-GET  /health       → service status
-GET  /download-csv/<filename> → download saved CSV
+POST /extract              → JSON with AssemblyStep list
+POST /extract-csv          → JSON with steps + saves CSV, triggers download via URL
+POST /generate-dsl         → generate External + Internal DSL from a saved CSV
+GET  /health               → service status
+GET  /download-csv/<f>     → download saved CSV
+GET  /download-dsl/<f>     → download generated DSL file (.yml or .txt)
 """
 
 import csv as _csv_mod
@@ -18,6 +20,7 @@ from flask import Blueprint, jsonify, request, current_app, send_file, render_te
 from models.llm import language_model
 from pipeline.runner import run_pipeline
 from pipeline.csv_writer import steps_to_csv, steps_to_csv_with_confidence, CSV_COLUMNS
+from pipeline.dsl_runner import run_dsl_from_csv
 
 api_bp = Blueprint('api', __name__)
 
@@ -183,3 +186,54 @@ def save_csv_edit():
     csv_path = _output_dir() / filename
     csv_path.write_text(buf.getvalue(), encoding='utf-8')
     return jsonify({"ok": True, "filename": filename, "download_url": f"/download-csv/{filename}"})
+
+
+# ── DSL generation endpoints ──────────────────────────────────────────────────
+
+@api_bp.route('/generate-dsl', methods=['POST'])
+def generate_dsl():
+    """
+    Generate External DSL (.yml) and Internal DSL (.txt) from a saved CSV.
+    Body: { "csv_filename": "foo_procedure.csv", "project_name": "MyProject" }
+    Returns: { "ok": true, "external_url": "...", "internal_url": "..." }
+    """
+    data = request.get_json(silent=True) or {}
+    csv_filename = data.get('csv_filename', '').strip()
+    project_name = data.get('project_name', '').strip()
+
+    if not csv_filename or not project_name:
+        return jsonify({"error": "csv_filename and project_name are required"}), 400
+    if '/' in csv_filename or '\\' in csv_filename:
+        return jsonify({"error": "Invalid csv_filename"}), 400
+
+    out = _output_dir()
+    csv_path = (out / csv_filename).resolve()
+    if not str(csv_path).startswith(str(out.resolve())):
+        return jsonify({"error": "Invalid filename"}), 400
+    if not csv_path.exists():
+        return jsonify({"error": f"CSV not found: {csv_filename}"}), 404
+
+    try:
+        external_path, internal_path = run_dsl_from_csv(str(csv_path), project_name, out)
+        return jsonify({
+            "ok": True,
+            "external_url": f"/download-dsl/{external_path.name}",
+            "internal_url": f"/download-dsl/{internal_path.name}",
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route('/download-dsl/<filename>', methods=['GET'])
+def download_dsl(filename):
+    """Serve a generated DSL file from the output directory."""
+    out = _output_dir().resolve()
+    path = (out / filename).resolve()
+    if not str(path).startswith(str(out)):
+        return jsonify({"error": "Invalid filename"}), 400
+    if not path.exists():
+        return jsonify({"error": "File not found"}), 404
+    mime = 'application/yaml' if filename.endswith('.yml') else 'text/plain'
+    return send_file(str(path), mimetype=mime, as_attachment=True, download_name=filename)

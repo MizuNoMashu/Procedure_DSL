@@ -85,6 +85,28 @@
     }
     .stat-card .val { font-size: 1.5rem; font-weight: bold; }
     .stat-card .lbl { font-size: 0.75rem; color: #666; margin-top: 2px; }
+
+    /* ── DSL section ───────────────────────────────────────────────── */
+    #dsl-section {
+      display: none;
+      margin-top: 28px;
+      border-top: 1px solid #ddd;
+      padding-top: 20px;
+    }
+    #dsl-project-input {
+      font-family: monospace; font-size: 0.9rem;
+      padding: 7px 10px; border: 1px solid #ccc;
+      border-radius: 4px; width: 220px;
+    }
+    #dsl-status { margin-top: 8px; font-size: 0.9rem; color: #555; min-height: 1.2em; }
+    #dsl-downloads { display: none; margin-top: 10px; }
+    .dsl-link {
+      display: inline-block; padding: 7px 16px;
+      border: 1px solid #555; border-radius: 4px;
+      font-family: monospace; font-size: 0.85rem;
+      text-decoration: none; color: #222; background: #fff;
+    }
+    .dsl-link:hover { background: #eee; }
   </style>
 </head>
 <body>
@@ -119,8 +141,25 @@
   <pre id="steps-pre"></pre>
 </div>
 
+<!-- DSL generation: shown after successful extraction -->
+<div id="dsl-section">
+  <h2>Generate DSL from CSV</h2>
+  <div class="row">
+    <input type="text" id="dsl-project-input" placeholder="Project name">
+    <button id="btn-dsl" class="primary" onclick="runGenerateDSL()">Generate DSL</button>
+  </div>
+  <div id="dsl-status"></div>
+  <div id="dsl-downloads">
+    <div class="row">
+      <a id="lnk-external" class="dsl-link" href="#">&#8595; External DSL (.yml)</a>
+      <a id="lnk-internal" class="dsl-link" href="#">&#8595; Internal DSL (.txt)</a>
+    </div>
+  </div>
+</div>
+
 <script>
   let file = null;
+  let currentCsvFilename = null;
 
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
@@ -136,14 +175,15 @@
 
   function setFile(f) {
     file = f;
-    document.getElementById('file-label').textContent = f ? '📄 ' + f.name : '';
+    document.getElementById('file-label').textContent = f ? '\uD83D\uDCC4 ' + f.name : '';
     document.getElementById('btn-extract').disabled = !f;
     clearMessages();
     document.getElementById('results').style.display = 'none';
+    document.getElementById('dsl-section').style.display = 'none';
   }
 
   function setStatus(msg) { document.getElementById('status').textContent = msg; }
-  function showError(msg) { document.getElementById('error').textContent = '⚠ ' + msg; }
+  function showError(msg) { document.getElementById('error').textContent = '\u26A0 ' + msg; }
   function clearMessages() {
     document.getElementById('status').textContent = '';
     document.getElementById('error').textContent = '';
@@ -174,8 +214,9 @@
   async function runExtract() {
     if (!file) return;
     clearMessages();
-    setStatus('⏳ Extracting… this may take several minutes.');
+    setStatus('\u23F3 Extracting\u2026 this may take several minutes.');
     document.getElementById('results').style.display = 'none';
+    document.getElementById('dsl-section').style.display = 'none';
 
     const fd = new FormData();
     fd.append('file', file);
@@ -187,13 +228,55 @@
       if (!resp.ok) { showError(data.error || 'Extraction failed'); return; }
       renderStats(data.stats);
       renderSteps(data.steps || []);
-      setStatus(`✓ Done — ${(data.steps || []).length} steps extracted. Downloading CSV…`);
+      setStatus(`\u2713 Done \u2014 ${(data.steps || []).length} steps extracted. Downloading CSV\u2026`);
       if (data.download_url) {
         setTimeout(() => { window.location.href = data.download_url; }, 500);
+      }
+      // Show DSL section with project name pre-filled from CSV filename stem
+      if (data.csv_filename) {
+        currentCsvFilename = data.csv_filename;
+        const stem = data.csv_filename.replace(/_procedure\.csv$/, '').replace(/\.csv$/, '');
+        document.getElementById('dsl-project-input').value = stem;
+        document.getElementById('dsl-status').textContent = '';
+        document.getElementById('dsl-downloads').style.display = 'none';
+        document.getElementById('dsl-section').style.display = '';
       }
     } catch (err) {
       setStatus('');
       showError('Network error: ' + err.message);
+    }
+  }
+
+  async function runGenerateDSL() {
+    if (!currentCsvFilename) return;
+    const projectName = document.getElementById('dsl-project-input').value.trim();
+    if (!projectName) {
+      document.getElementById('dsl-status').textContent = '\u26A0 Enter a project name.';
+      return;
+    }
+    document.getElementById('btn-dsl').disabled = true;
+    document.getElementById('dsl-status').textContent = '\u23F3 Generating DSL\u2026';
+    document.getElementById('dsl-downloads').style.display = 'none';
+
+    try {
+      const resp = await fetch('/generate-dsl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv_filename: currentCsvFilename, project_name: projectName }),
+      });
+      const data = await resp.json();
+      document.getElementById('btn-dsl').disabled = false;
+      if (!resp.ok) {
+        document.getElementById('dsl-status').textContent = '\u26A0 ' + (data.error || 'Generation failed');
+        return;
+      }
+      document.getElementById('dsl-status').textContent = '\u2713 DSL generated successfully.';
+      document.getElementById('lnk-external').href = data.external_url;
+      document.getElementById('lnk-internal').href = data.internal_url;
+      document.getElementById('dsl-downloads').style.display = '';
+    } catch (err) {
+      document.getElementById('btn-dsl').disabled = false;
+      document.getElementById('dsl-status').textContent = '\u26A0 Network error: ' + err.message;
     }
   }
 </script>
