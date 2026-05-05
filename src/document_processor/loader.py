@@ -36,23 +36,29 @@ class DocumentLoader:
     
     @staticmethod
     def load_pdf(file_path: str) -> Document:
-        """Load PDF file"""
-        content = []
-        
+        """Load PDF file. Builds page_map so callers can map char positions → page numbers."""
+        SEP = '\n\n'
+        page_texts = []
+        page_map = []   # list of (page_num_1based, char_start, char_end)
+        pos = 0
+
         with open(file_path, 'rb') as f:
             pdf_reader = pypdf.PdfReader(f)
             num_pages = len(pdf_reader.pages)
-            
+
             for page_num in range(num_pages):
-                page = pdf_reader.pages[page_num]
-                content.append(page.extract_text())
-        
+                text = pdf_reader.pages[page_num].extract_text() or ""
+                page_map.append((page_num + 1, pos, pos + len(text)))
+                page_texts.append(text)
+                pos += len(text) + len(SEP)  # account for the separator we'll join with
+
         return Document(
-            content='\n\n'.join(content),
+            content=SEP.join(page_texts),
             metadata={
                 'source': file_path,
                 'type': 'pdf',
-                'pages': num_pages
+                'pages': num_pages,
+                'page_map': page_map,   # [(page, start_char, end_char), ...]
             }
         )
     

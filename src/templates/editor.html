@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Step Editor — Procedure DSL</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; max-width: 1500px; margin: 0 auto; padding: 0 20px 48px; color: #222; }
+
+    /* ── Nav ──────────────────────────────────────────────────────── */
+    nav {
+      display: flex; border-bottom: 2px solid #333;
+      margin-bottom: 24px; padding-top: 16px;
+    }
+    nav a {
+      text-decoration: none; color: #666;
+      padding: 8px 18px; font-family: monospace; font-size: 0.9rem;
+    }
+    nav a.active { color: #222; font-weight: bold; border-bottom: 3px solid #333; margin-bottom: -2px; }
+    nav a:hover:not(.active) { color: #333; background: #f5f5f5; }
+
+    h1 { font-size: 1.4rem; margin-bottom: 20px; }
+
+    /* ── Buttons ──────────────────────────────────────────────────── */
+    button {
+      padding: 6px 14px; cursor: pointer; border: 1px solid #555;
+      border-radius: 4px; background: #fff; font-family: monospace; font-size: 0.85rem;
+    }
+    button:hover:not(:disabled) { background: #eee; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: #333; color: #fff; border-color: #333; }
+    button.primary:hover:not(:disabled) { background: #555; }
+    button.danger { color: #c00; border-color: #daa; }
+    button.danger:hover:not(:disabled) { background: #fff0f0; border-color: #c00; }
+    button.sm { padding: 3px 8px; font-size: 0.78rem; }
+
+    /* ── Inputs ───────────────────────────────────────────────────── */
+    input[type=text], select, textarea {
+      font-family: monospace; font-size: 0.85rem;
+      border: 1px solid #ccc; border-radius: 3px; padding: 5px 7px;
+      background: #fff; color: #222;
+    }
+    input[type=text]:focus, select:focus, textarea:focus {
+      outline: none; border-color: #555;
+    }
+
+    /* ── Load section ─────────────────────────────────────────────── */
+    #load-section {
+      display: flex; gap: 10px; align-items: center;
+      flex-wrap: wrap; padding: 14px 16px;
+      background: #f8f8f8; border: 1px solid #e0e0e0;
+      border-radius: 5px; margin-bottom: 14px;
+    }
+    #load-section .sep { color: #bbb; font-size: 1.1rem; padding: 0 4px; }
+    #csv-select { min-width: 220px; }
+
+    /* ── Messages ─────────────────────────────────────────────────── */
+    #status { color: #555; font-size: 0.85rem; min-height: 1.3em; margin-bottom: 4px; }
+    #error  { color: #c00; font-size: 0.85rem; min-height: 1.3em; margin-bottom: 4px; }
+
+    /* ── Toolbar ──────────────────────────────────────────────────── */
+    #toolbar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 10px 12px; background: #f0f0f0;
+      border: 1px solid #ddd; border-radius: 4px; margin-bottom: 12px;
+    }
+    #toolbar .sep { color: #bbb; }
+    #toolbar .spacer { flex: 1; }
+    #save-filename { width: 240px; }
+    #step-count { font-size: 0.82rem; color: #555; white-space: nowrap; }
+
+    /* ── Table ────────────────────────────────────────────────────── */
+    #table-wrap { overflow-x: auto; border: 1px solid #ddd; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    thead th {
+      background: #2a2a2a; color: #fff; text-align: left;
+      padding: 7px 8px; white-space: nowrap;
+      position: sticky; top: 0; z-index: 1;
+    }
+    tbody tr:nth-child(even) { background: #fafafa; }
+    tbody tr:hover { background: #f0f4ff; }
+    td { padding: 4px 7px; vertical-align: middle; border-bottom: 1px solid #eee; }
+
+    .col-drag  { width: 28px; text-align: center; cursor: grab; color: #bbb; user-select: none; }
+    .col-drag:hover { color: #666; }
+    .col-drag:active { cursor: grabbing; }
+    .col-id    { width: 38px; text-align: center; color: #888; }
+    .col-act   { width: 120px; }
+    .col-act select { width: 112px; padding: 2px 4px; font-size: 0.78rem; }
+    .col-text  { max-width: 140px; }
+    .col-wide  { max-width: 190px; }
+    .col-text span, .col-wide span {
+      display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .col-btns  { width: 88px; white-space: nowrap; }
+    .col-conf  { width: 58px; text-align: center; }
+    .conf-badge {
+      display: inline-block; border-radius: 10px; padding: 1px 7px;
+      font-size: 0.75rem; font-weight: bold; white-space: nowrap;
+    }
+    .conf-high { background: #d4edda; color: #1a6630; }
+    .conf-mid  { background: #fff3cd; color: #856404; }
+    .conf-low  { background: #f8d7da; color: #842029; }
+
+    tr.dragging { opacity: 0.5; }
+    tr.drag-over-top { border-top: 3px solid #4a90e2; }
+    tr.drag-over-bottom { border-bottom: 3px solid #4a90e2; }
+
+    /* ── Modal overlay ────────────────────────────────────────────── */
+    #modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.48);
+      display: flex; align-items: center; justify-content: center; z-index: 200;
+    }
+    #modal {
+      background: #fff; border-radius: 6px; padding: 26px 30px;
+      width: 600px; max-width: 96vw; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    #modal h2 { font-size: 1rem; margin-bottom: 18px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+
+    .fg { margin-bottom: 13px; }
+    .fg label { display: block; font-size: 0.78rem; color: #555; margin-bottom: 3px; font-weight: bold; }
+    .fg label .req { color: #c00; margin-left: 2px; }
+    .fg label .hint { color: #999; font-size: 0.72rem; font-weight: normal; margin-left: 6px; }
+    .fg input[type=text], .fg select, .fg textarea { width: 100%; }
+    .fg textarea { height: 64px; resize: vertical; }
+    .fg .field-id { font-size: 1.1rem; font-weight: bold; color: #333; }
+
+    .modal-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .modal-footer {
+      display: flex; gap: 8px; justify-content: flex-end;
+      margin-top: 20px; padding-top: 14px; border-top: 1px solid #eee;
+    }
+
+    /* ── Empty state ──────────────────────────────────────────────── */
+    #empty-state {
+      text-align: center; color: #aaa; padding: 40px;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/">Extractor</a>
+  <a href="/editor" class="active">Editor</a>
+</nav>
+
+<h1>Step Editor</h1>
+
+<!-- Load section -->
+<div id="load-section">
+  <span style="font-size:0.85rem;color:#444">Load from server:</span>
+  <select id="csv-select"><option value="">— select a saved CSV —</option></select>
+  <button onclick="loadSelected()">Load</button>
+  <span class="sep">|</span>
+  <span style="font-size:0.85rem;color:#444">Upload CSV:</span>
+  <input type="file" id="csv-upload" accept=".csv" style="font-size:0.82rem">
+  <button onclick="uploadCsv()">Load File</button>
+</div>
+
+<div id="status"></div>
+<div id="error"></div>
+
+<!-- Toolbar -->
+<div id="toolbar" style="display:none">
+  <button class="primary" onclick="addStep()">+ Add Step</button>
+  <button onclick="downloadCsv()">&#8595; Download CSV</button>
+  <span class="sep">|</span>
+  <span style="font-size:0.82rem;color:#444">Save as:</span>
+  <input type="text" id="save-filename" placeholder="filename.csv">
+  <button class="primary" onclick="saveToServer()">Save to Server</button>
+  <span class="sep">|</span>
+  <input type="text" id="dsl-project-name" placeholder="Project name"
+         style="width:160px;" title="Project name for DSL generation">
+  <button id="btn-gen-dsl" onclick="generateDSL()" title="Generate External + Internal DSL from saved CSV">Generate DSL</button>
+  <span class="spacer"></span>
+  <span id="step-count"></span>
+</div>
+
+<!-- DSL status bar: shown after Generate DSL is triggered -->
+<div id="dsl-bar" style="display:none; padding:8px 14px; background:#f0fff4;
+     border:1px solid #b2dfdb; border-radius:4px; margin-bottom:10px;
+     font-size:0.85rem; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+  <span id="dsl-bar-status"></span>
+  <a id="dsl-ext-link" href="#" style="display:none; text-decoration:none; color:#1a6630;
+     border:1px solid #b2dfdb; border-radius:3px; padding:3px 10px; background:#fff;">
+    &#8595; External DSL (.yml)
+  </a>
+  <a id="dsl-int-link" href="#" style="display:none; text-decoration:none; color:#1a6630;
+     border:1px solid #b2dfdb; border-radius:3px; padding:3px 10px; background:#fff;">
+    &#8595; Internal DSL (.txt)
+  </a>
+</div>
+
+<!-- Table -->
+<div id="table-wrap" style="display:none">
+  <table>
+    <thead>
+      <tr>
+        <th class="col-drag"></th>
+        <th class="col-id">#</th>
+        <th>COMPONENT</th>
+        <th>COMP. DETAIL</th>
+        <th>ORIENTATION</th>
+        <th class="col-act">ACTION</th>
+        <th>APPLIED TO</th>
+        <th>TOOL</th>
+        <th>TOOL DETAIL</th>
+        <th>ASSEMBLY DETAIL</th>
+        <th id="conf-th" class="col-conf" style="display:none">CONF.</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="steps-body">
+      <tr><td colspan="11"><div id="empty-state">No steps loaded.</div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Edit Modal -->
+<div id="modal-overlay" style="display:none" onclick="overlayClick(event)">
+  <div id="modal">
+    <h2 id="modal-title">Edit Step</h2>
+
+    <div class="fg">
+      <label>ID</label>
+      <div class="field-id" id="modal-id">—</div>
+    </div>
+
+    <div class="modal-2col">
+      <div class="fg">
+        <label>COMPONENT <span class="req">*</span></label>
+        <input type="text" id="f-component" placeholder="e.g. M3 Bolt">
+      </div>
+      <div class="fg">
+        <label>COMPONENT DETAIL <span class="hint">specs / part no.</span></label>
+        <input type="text" id="f-comp-detail" placeholder="e.g. M3×8mm stainless">
+      </div>
+    </div>
+
+    <div class="modal-2col">
+      <div class="fg">
+        <label>ACTION <span class="req">*</span></label>
+        <select id="f-action">
+          <option value="Place">Place</option>
+          <option value="Insert">Insert</option>
+          <option value="Screw in">Screw in</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>ORIENTATION <span class="hint">only if explicitly stated</span></label>
+        <input type="text" id="f-orientation" list="dl-orientations"
+               placeholder="e.g. proper orientation">
+        <datalist id="dl-orientations">
+          <option value="proper orientation">
+          <option value="horizontal">
+          <option value="vertical">
+          <option value="upward">
+          <option value="downward">
+          <option value="face up">
+          <option value="face down">
+          <option value="Ensure proper orientation!">
+        </datalist>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>APPLIED TO</label>
+      <input type="text" id="f-applied-to"
+             placeholder="e.g. Frame; Rail 1;  (separate multiple with semicolons)">
+    </div>
+
+    <div class="modal-2col">
+      <div class="fg">
+        <label>TOOL</label>
+        <input type="text" id="f-tool" list="dl-tools"
+               placeholder="e.g. Allen Wrench">
+        <datalist id="dl-tools">
+          <option value="Allen Wrench">
+          <option value="2mm Allen Wrench">
+          <option value="Soldering Iron">
+          <option value="Needle Pliers">
+          <option value="Pliers">
+          <option value="Screwdriver">
+          <option value="None">
+        </datalist>
+      </div>
+      <div class="fg">
+        <label>TOOL DETAIL</label>
+        <input type="text" id="f-tool-detail" placeholder="e.g. 2mm hex bit">
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>ASSEMBLY DETAIL <span class="hint">notes, warnings, instructions</span></label>
+      <textarea id="f-asm-detail"
+                placeholder="Additional notes or warnings…"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveModal()">Save Step</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const CSV_COLS = [
+  "ID","COMPONENT","COMPONENT DETAIL","ORIENTATION",
+  "ACTION","APPLIED TO","TOOL","TOOL DETAIL","ASSEMBLY DETAIL"
+];
+const VALIDATED_ACTIONS = new Set(["Place","Insert","Screw in"]);
+const ALL_ACTIONS = ["Place","Insert","Screw in"];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let steps = [];
+let currentFile = '';
+let editIdx = null;
+let dragSourceIdx = null;
+let hasConfidence = false;  // true when loaded CSV contains a CONFIDENCE column
+
+// ── Init: populate CSV dropdown ───────────────────────────────────────────────
+(async () => {
+  try {
+    const r = await fetch('/list-csv');
+    const d = await r.json();
+    const sel = document.getElementById('csv-select');
+    (d.files || []).forEach(f => {
+      const o = document.createElement('option');
+      o.value = o.textContent = f;
+      sel.appendChild(o);
+    });
+  } catch (_) {}
+})();
+
+// ── Load from server ──────────────────────────────────────────────────────────
+async function loadSelected() {
+  const filename = document.getElementById('csv-select').value;
+  if (!filename) return showError('Select a CSV from the list first.');
+  clearMessages();
+  setStatus('Loading…');
+  try {
+    const r = await fetch('/load-csv-json/' + encodeURIComponent(filename));
+    const d = await r.json();
+    if (!r.ok) return showError(d.error || 'Load failed');
+    applyRows(d.rows, filename);
+  } catch (e) { showError('Network error: ' + e.message); }
+}
+
+// ── Upload a local CSV file ───────────────────────────────────────────────────
+function uploadCsv() {
+  const inp = document.getElementById('csv-upload');
+  if (!inp.files[0]) return showError('Choose a .csv file first.');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const rows = parseCsv(e.target.result);
+      applyRows(rows, inp.files[0].name);
+    } catch (err) { showError('Parse error: ' + err.message); }
+  };
+  reader.readAsText(inp.files[0], 'utf-8');
+}
+
+// ── CSV parser (handles RFC-4180 quoting) ─────────────────────────────────────
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (lines.length < 1) return [];
+  const headers = parseLine(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = parseLine(line);
+    const row = {};
+    headers.forEach((h, i) => row[h.trim()] = (vals[i] ?? '').trim());
+    CSV_COLS.forEach(c => { if (!(c in row)) row[c] = ''; });
+    return row;
+  });
+}
+
+function parseLine(line) {
+  const out = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+// ── Apply rows to editor state ────────────────────────────────────────────────
+function applyRows(rows, filename) {
+  hasConfidence = rows.length > 0 && 'CONFIDENCE' in rows[0];
+  document.getElementById('conf-th').style.display = hasConfidence ? '' : 'none';
+
+  steps = rows.map(r => {
+    const s = {};
+    CSV_COLS.forEach(c => s[c] = String(r[c] ?? ''));
+    if (hasConfidence) s._conf = String(r['CONFIDENCE'] ?? '');  // preserved, never saved
+    return s;
+  });
+  currentFile = filename;
+  document.getElementById('save-filename').value = filename;
+  // Pre-fill project name from filename stem
+  const stem = filename.replace(/_procedure\.csv$/, '').replace(/\.csv$/, '');
+  document.getElementById('dsl-project-name').value = stem;
+  // Hide any previous DSL results
+  document.getElementById('dsl-bar').style.display = 'none';
+  document.getElementById('toolbar').style.display = '';
+  document.getElementById('table-wrap').style.display = '';
+  renderTable();
+  setStatus('Loaded: ' + filename + ' — ' + steps.length + ' step' + (steps.length !== 1 ? 's' : ''));
+}
+
+// ── Render table ──────────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('steps-body');
+  const totalCols = 11 + (hasConfidence ? 1 : 0);
+  if (!steps.length) {
+    tbody.innerHTML = `<tr><td colspan="${totalCols}"><div id="empty-state">No steps. Click "+ Add Step" to create one.</div></td></tr>`;
+    updateCount();
+    return;
+  }
+  tbody.innerHTML = steps.map((s, i) => `
+    <tr draggable="true" data-idx="${i}"
+        ondragstart="handleDragStart(event, ${i})"
+        ondragover="handleDragOver(event)"
+        ondrop="handleDrop(event, ${i})"
+        ondragend="handleDragEnd(event)"
+        ondragleave="handleDragLeave(event)">
+      <td class="col-drag" title="Drag to reorder">&#8942;&#8942;</td>
+      <td class="col-id">${esc(s.ID || i+1)}</td>
+      <td class="col-text"><span title="${esc(s['COMPONENT'])}">${esc(s['COMPONENT']) || '<em style="color:#bbb">—</em>'}</span></td>
+      <td class="col-text"><span title="${esc(s['COMPONENT DETAIL'])}">${esc(s['COMPONENT DETAIL'])}</span></td>
+      <td class="col-text"><span title="${esc(s['ORIENTATION'])}">${esc(s['ORIENTATION'])}</span></td>
+      <td class="col-act">${renderActionCell(i, s['ACTION'])}</td>
+      <td class="col-wide"><span title="${esc(s['APPLIED TO'])}">${esc(s['APPLIED TO'])}</span></td>
+      <td class="col-text"><span title="${esc(s['TOOL'])}">${esc(s['TOOL'])}</span></td>
+      <td class="col-text"><span title="${esc(s['TOOL DETAIL'])}">${esc(s['TOOL DETAIL'])}</span></td>
+      <td class="col-wide"><span title="${esc(s['ASSEMBLY DETAIL'])}">${esc(s['ASSEMBLY DETAIL'])}</span></td>
+      ${hasConfidence ? `<td class="col-conf">${confBadge(s._conf)}</td>` : ''}
+      <td class="col-btns">
+        <button class="sm" onclick="openEdit(${i})">Edit</button>
+        <button class="sm danger" onclick="deleteStep(${i})">&#215;</button>
+      </td>
+    </tr>`).join('');
+  updateCount();
+}
+
+function confBadge(val) {
+  const v = parseFloat(val);
+  if (isNaN(v)) return '';
+  const cls = v >= 0.8 ? 'conf-high' : v >= 0.5 ? 'conf-mid' : 'conf-low';
+  return `<span class="conf-badge ${cls}">${v.toFixed(2)}</span>`;
+}
+
+function renderActionCell(i, current) {
+  // Ensure current action is one of the validated ones
+  const validCurrent = VALIDATED_ACTIONS.has(current) ? current : 'Place';
+  let opts = ALL_ACTIONS.map(a =>
+    `<option${a === validCurrent ? ' selected' : ''}>${esc(a)}</option>`
+  ).join('');
+  return `<select title="${esc(validCurrent)}"
+    onchange="steps[${i}]['ACTION']=this.value;renderTable()">${opts}</select>`;
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function updateCount() {
+  document.getElementById('step-count').textContent =
+    steps.length + ' step' + (steps.length !== 1 ? 's' : '');
+}
+
+// ── Add new step ──────────────────────────────────────────────────────────────
+function addStep() {
+  const nextId = steps.length ? String(parseInt(steps[steps.length-1].ID || steps.length) + 1) : '1';
+  const s = {};
+  CSV_COLS.forEach(c => s[c] = '');
+  s.ID = nextId;
+  s.ACTION = 'Place';
+  steps.push(s);
+  renderTable();
+  // Open edit modal for the new row
+  setTimeout(() => openEdit(steps.length - 1), 30);
+}
+
+// ── Delete step ───────────────────────────────────────────────────────────────
+function deleteStep(i) {
+  const label = steps[i].ID || (i+1);
+  if (!confirm(`Delete step ${label}?`)) return;
+  steps.splice(i, 1);
+  steps.forEach((s, idx) => s.ID = String(idx + 1));
+  renderTable();
+}
+
+// ── Edit modal: open ──────────────────────────────────────────────────────────
+function openEdit(i) {
+  editIdx = i;
+  const s = steps[i];
+  document.getElementById('modal-title').textContent = 'Edit Step — #' + (s.ID || (i+1));
+  document.getElementById('modal-id').textContent = s.ID || (i+1);
+  document.getElementById('f-component').value    = s['COMPONENT'] || '';
+  document.getElementById('f-comp-detail').value  = s['COMPONENT DETAIL'] || '';
+  document.getElementById('f-orientation').value  = s['ORIENTATION'] || '';
+  document.getElementById('f-applied-to').value   = s['APPLIED TO'] || '';
+  document.getElementById('f-tool').value         = s['TOOL'] || '';
+  document.getElementById('f-tool-detail').value  = s['TOOL DETAIL'] || '';
+  document.getElementById('f-asm-detail').value   = s['ASSEMBLY DETAIL'] || '';
+
+  // Set action
+  const sel = document.getElementById('f-action');
+  const val = s['ACTION'] || 'Place';
+  // If action is not in the validated set, default to 'Place'
+  sel.value = VALIDATED_ACTIONS.has(val) ? val : 'Place';
+
+  document.getElementById('modal-overlay').style.display = '';
+  setTimeout(() => document.getElementById('f-component').focus(), 50);
+}
+
+// ── Edit modal: save ──────────────────────────────────────────────────────────
+function saveModal() {
+  if (editIdx === null) return;
+  const s = steps[editIdx];
+  s['COMPONENT']        = document.getElementById('f-component').value.trim();
+  s['COMPONENT DETAIL'] = document.getElementById('f-comp-detail').value.trim();
+  s['ORIENTATION']      = document.getElementById('f-orientation').value.trim();
+  s['ACTION']           = document.getElementById('f-action').value;
+  s['APPLIED TO']       = document.getElementById('f-applied-to').value.trim();
+  s['TOOL']             = document.getElementById('f-tool').value.trim();
+  s['TOOL DETAIL']      = document.getElementById('f-tool-detail').value.trim();
+  s['ASSEMBLY DETAIL']  = document.getElementById('f-asm-detail').value.trim();
+  closeModal();
+  renderTable();
+}
+
+// ── Edit modal: close ─────────────────────────────────────────────────────────
+function closeModal() {
+  document.getElementById('modal-overlay').style.display = 'none';
+  editIdx = null;
+}
+function overlayClick(e) {
+  if (e.target.id === 'modal-overlay') closeModal();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if ((e.key === 'Enter') && (e.ctrlKey || e.metaKey) && editIdx !== null) saveModal();
+});
+
+// ── Save to server ────────────────────────────────────────────────────────────
+async function saveToServer() {
+  const filename = document.getElementById('save-filename').value.trim();
+  if (!filename || !filename.endsWith('.csv'))
+    return showError('Filename must end with .csv');
+  clearMessages();
+  setStatus('Saving…');
+  try {
+    const r = await fetch('/save-csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, rows: steps }),
+    });
+    const d = await r.json();
+    if (!r.ok) return showError(d.error || 'Save failed');
+    currentFile = filename;
+    setStatus('Saved: ' + filename);
+    refreshDropdown();
+  } catch (e) { showError('Network error: ' + e.message); }
+}
+
+async function refreshDropdown() {
+  try {
+    const r = await fetch('/list-csv');
+    const d = await r.json();
+    const sel = document.getElementById('csv-select');
+    sel.innerHTML = '<option value="">— select a saved CSV —</option>';
+    (d.files || []).forEach(f => {
+      const o = document.createElement('option');
+      o.value = o.textContent = f;
+      if (f === currentFile) o.selected = true;
+      sel.appendChild(o);
+    });
+  } catch (_) {}
+}
+
+// ── Download CSV (client-side) ────────────────────────────────────────────────
+function downloadCsv() {
+  if (!steps.length) return showError('No steps to download.');
+  const csv = toCsvString();
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: document.getElementById('save-filename').value.trim() || 'steps.csv',
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function toCsvString() {
+  const lines = [CSV_COLS.map(csvQuote).join(',')];
+  steps.forEach(s => lines.push(CSV_COLS.map(c => csvQuote(s[c] ?? '')).join(',')));
+  return lines.join('\n');
+}
+
+function csvQuote(v) {
+  const s = String(v ?? '');
+  return (s.includes(',') || s.includes('"') || s.includes('\n'))
+    ? '"' + s.replace(/"/g, '""') + '"'
+    : s;
+}
+
+// ── Drag and Drop handlers ────────────────────────────────────────────────────
+let dropPosition = null; // 'before' or 'after'
+
+function handleDragStart(e, idx) {
+  dragSourceIdx = idx;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', idx);
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  const row = e.currentTarget;
+  if (row.classList.contains('dragging')) return false;
+
+  // Determine if mouse is in top half or bottom half of the row
+  const rect = row.getBoundingClientRect();
+  const midpoint = rect.top + rect.height / 2;
+  const mouseY = e.clientY;
+
+  // Clear previous classes
+  row.classList.remove('drag-over-top', 'drag-over-bottom');
+
+  if (mouseY < midpoint) {
+    row.classList.add('drag-over-top');
+    dropPosition = 'before';
+  } else {
+    row.classList.add('drag-over-bottom');
+    dropPosition = 'after';
+  }
+
+  return false;
+}
+
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over-top', 'drag-over-bottom');
+}
+
+function handleDrop(e, targetIdx) {
+  e.stopPropagation();
+  e.preventDefault();
+
+  const row = e.currentTarget;
+  row.classList.remove('drag-over-top', 'drag-over-bottom');
+
+  if (dragSourceIdx === null || dragSourceIdx === targetIdx) return;
+
+  // Calculate actual insert position based on drop position
+  let insertIdx = targetIdx;
+  if (dropPosition === 'after') {
+    insertIdx = targetIdx + 1;
+  }
+
+  // Adjust if dragging from before the target
+  if (dragSourceIdx < insertIdx) {
+    insertIdx--;
+  }
+
+  // Reorder the steps array
+  const movedStep = steps.splice(dragSourceIdx, 1)[0];
+  steps.splice(insertIdx, 0, movedStep);
+
+  // Renumber IDs
+  steps.forEach((s, idx) => s.ID = String(idx + 1));
+
+  renderTable();
+  dropPosition = null;
+  return false;
+}
+
+function handleDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('tr.drag-over-top, tr.drag-over-bottom').forEach(r => {
+    r.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+  dragSourceIdx = null;
+  dropPosition = null;
+}
+
+// ── Generate DSL ──────────────────────────────────────────────────────────────
+async function generateDSL() {
+  if (!currentFile) return showError('Save the CSV to server first, then generate DSL.');
+  const projectName = document.getElementById('dsl-project-name').value.trim();
+  if (!projectName) return showError('Enter a project name before generating DSL.');
+
+  clearMessages();
+  const bar = document.getElementById('dsl-bar');
+  const barStatus = document.getElementById('dsl-bar-status');
+  bar.style.display = 'flex';
+  barStatus.textContent = '\u23F3 Generating DSL\u2026';
+  document.getElementById('dsl-ext-link').style.display = 'none';
+  document.getElementById('dsl-int-link').style.display = 'none';
+  document.getElementById('btn-gen-dsl').disabled = true;
+
+  try {
+    const r = await fetch('/generate-dsl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv_filename: currentFile, project_name: projectName }),
+    });
+    const d = await r.json();
+    document.getElementById('btn-gen-dsl').disabled = false;
+    if (!r.ok) {
+      barStatus.textContent = '\u26A0 ' + (d.error || 'DSL generation failed');
+      return;
+    }
+    barStatus.textContent = '\u2713 DSL generated:';
+    const extLink = document.getElementById('dsl-ext-link');
+    const intLink = document.getElementById('dsl-int-link');
+    extLink.href = d.external_url;
+    extLink.style.display = '';
+    intLink.href = d.internal_url;
+    intLink.style.display = '';
+  } catch (e) {
+    document.getElementById('btn-gen-dsl').disabled = false;
+    barStatus.textContent = '\u26A0 Network error: ' + e.message;
+  }
+}
+
+// ── Status helpers ────────────────────────────────────────────────────────────
+function setStatus(m) { document.getElementById('status').textContent = m; document.getElementById('error').textContent = ''; }
+function showError(m) { document.getElementById('error').textContent = m; document.getElementById('status').textContent = ''; }
+function clearMessages() { document.getElementById('status').textContent = ''; document.getElementById('error').textContent = ''; }
+</script>
+
+</body>
+</html>

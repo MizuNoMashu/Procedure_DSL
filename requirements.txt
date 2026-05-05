@@ -1,7 +1,9 @@
 # LLM local
-huggingface-hub==0.34.0
-transformers==4.57.3
+huggingface-hub>=0.34.0
+transformers>=4.46.0
 torch==2.4.0
+protobuf>=3.20.0
+bitsandbytes>=0.44.0
 
 # Document loaders
 pypdf==6.4.1
@@ -19,3 +21,6 @@ flask==3.1.2
 flask-cors==6.0.1
 
 accelerate
+
+# Constrained JSON decoding (guarantees valid LLM output, eliminates parsing fallback)
+lm-format-enforcer>=0.10.0

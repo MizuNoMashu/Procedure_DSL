@@ -46,6 +46,31 @@ def dedup_steps(steps: List[AssemblyStep]) -> List[AssemblyStep]:
     return unique
 
 
+def compute_hybrid_confidence(step: AssemblyStep) -> float:
+    """
+    Hybrid confidence score: 40% LLM self-report + 60% field completeness.
+
+    Field score weights (sum to 1.0):
+      action  valid  → 0.35
+      component       → 0.35
+      applied_to      → 0.20
+      tool            → 0.10
+
+    Result is clamped to [0.0, 1.0] and rounded to 3 decimal places.
+    """
+    field_score = 0.0
+    if step.action.strip() in ALLOWED_ACTIONS:
+        field_score += 0.35
+    if step.component.strip():
+        field_score += 0.35
+    if step.applied_to.strip():
+        field_score += 0.20
+    if step.tool.strip():
+        field_score += 0.10
+    hybrid = 0.4 * step.confidence + 0.6 * field_score
+    return round(min(max(hybrid, 0.0), 1.0), 3)
+
+
 def _check(step: AssemblyStep, min_confidence: float) -> List[str]:
     issues = []
     action = step.action.strip()
