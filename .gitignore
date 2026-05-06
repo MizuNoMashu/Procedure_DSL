@@ -211,6 +211,8 @@ __marimo__/
 # CUSTOM GITIGNORE
 extractor_pipeline/src/input_files/*
 extractor_pipeline/src/models/cache/*
+
+ui_dsl/src/output/*
 .DS_Store
 
 *.csv

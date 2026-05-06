@@ -2,12 +2,12 @@ device: cuda
 
 llm:
   model: Qwen/Qwen3-4B-Instruct-2507  # Ottimo bilancio precisione/velocità (~7B parametri, ~7GB RAM)
-  max_tokens: 2048
+  max_tokens: 3072 #2048
 
 chunking:
-  size: 2000
-  overlap: 200
-  batch_max_chars: 4000   # combine adjacent chunks up to this char count per LLM call
+  size: 3000 #2000
+  overlap: 300 #200
+  batch_max_chars: 6000  #4000 # combine adjacent chunks up to this char count per LLM call
 
 extraction:
   min_confidence: 0.4   # steps below this are flagged invalid
