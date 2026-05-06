@@ -1,27 +1,30 @@
 services:
-  rag-app:
+
+  ui:
     build:
+      context: ./ui_dsl
       dockerfile: Dockerfile
-      context: .
+    container_name: procedure-ui
+    environment:
+      - LLM_SERVICE_URL=http://extractor:8001
+    volumes:
+      - ./ui_dsl/src:/app/src
+    ports:
+      - "8000:8000"
+    depends_on:
+      - extractor
 
-    container_name: rag-app
-
+  extractor:
+    build:
+      context: ./extractor_pipeline
+      dockerfile: Dockerfile
+    container_name: procedure-extractor
     runtime: nvidia
-
     environment:
       - HF_HOME=/app/src/models/cache
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-
     volumes:
-      - ./src:/app/src
-      - ./src/config:/app/src/config
-      - ./src/models:/app/src/models
-      - ./src/document_processor:/app/src/document_processor
-      - ./src/input_files:/app/src/input_files
-      - ./src/vectorstore:/app/src/vectorstore
-      - ./src/rag:/app/src/rag
-
+      - ./extractor_pipeline/src:/app/src
     ports:
-      - "8000:8000"
-
+      - "8001:8001"

@@ -152,6 +152,18 @@
     .at-detail{ flex: 1; font-size: 0.83rem; }
     .at-semi  { color: #aaa; font-size: 0.85rem; flex-shrink: 0; }
 
+    /* ── Orientation widget ───────────────────────────────────── */
+    #orientation-rows { margin-bottom: 5px; }
+    .or-row {
+      display: flex; align-items: center; gap: 5px;
+      margin-bottom: 5px;
+    }
+    .or-left   { flex: 0 0 26%; font-size: 0.83rem; }
+    .or-eq     { color: #aaa; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; }
+    .or-comp   { flex: 0 0 30%; font-size: 0.83rem; }
+    .or-dot    { color: #aaa; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; }
+    .or-detail { flex: 1; font-size: 0.83rem; }
+
     /* ── Key=Value widget (component detail, tool detail) ──────── */
     .kv-rows { margin-bottom: 5px; }
     .kv-row {
@@ -266,34 +278,23 @@
       </div>
     </div>
 
-    <div class="modal-2col">
-      <div class="fg">
-        <label>ACTION <span class="req">*</span></label>
-        <select id="f-action">
-          <option value="Place">Place</option>
-          <option value="Insert">Insert</option>
-          <option value="Screw in">Screw in</option>
-          <option value="Connect">Connect</option>
-          <option value="Solder">Solder</option>
-          <option value="Apply">Apply</option>
-          <option value="Remove">Remove</option>
-        </select>
-      </div>
-      <div class="fg">
-        <label>ORIENTATION <span class="hint">only if explicitly stated</span></label>
-        <input type="text" id="f-orientation" list="dl-orientations"
-               placeholder="e.g. proper orientation">
-        <datalist id="dl-orientations">
-          <option value="proper orientation">
-          <option value="horizontal">
-          <option value="vertical">
-          <option value="upward">
-          <option value="downward">
-          <option value="face up">
-          <option value="face down">
-          <option value="Ensure proper orientation!">
-        </datalist>
-      </div>
+    <div class="fg" style="max-width:48%">
+      <label>ACTION <span class="req">*</span></label>
+      <select id="f-action">
+        <option value="Place">Place</option>
+        <option value="Insert">Insert</option>
+        <option value="Screw in">Screw in</option>
+        <option value="Connect">Connect</option>
+        <option value="Solder">Solder</option>
+        <option value="Apply">Apply</option>
+        <option value="Remove">Remove</option>
+      </select>
+    </div>
+
+    <div class="fg">
+      <label>ORIENTATION <span class="hint">solo se esplicitamente indicato</span></label>
+      <div id="orientation-rows"></div>
+      <button type="button" class="btn-add-widget" onclick="addOrRow()">+ Aggiungi</button>
     </div>
 
     <div class="fg">
@@ -546,7 +547,7 @@ function openEdit(i) {
   document.getElementById('modal-id').textContent = s.ID || (i+1);
   document.getElementById('f-component').value    = s['COMPONENT'] || '';
   setKvValue('comp-detail-rows', s['COMPONENT DETAIL'] || '');
-  document.getElementById('f-orientation').value  = s['ORIENTATION'] || '';
+  setOrValue(s['ORIENTATION'] || '');
   document.getElementById('f-tool').value         = s['TOOL'] || '';
   setKvValue('tool-detail-rows', s['TOOL DETAIL'] || '');
   document.getElementById('f-asm-detail').value   = s['ASSEMBLY DETAIL'] || '';
@@ -581,7 +582,7 @@ function saveModal() {
   const s = steps[editIdx];
   s['COMPONENT']        = document.getElementById('f-component').value.trim();
   s['COMPONENT DETAIL'] = getKvValue('comp-detail-rows');
-  s['ORIENTATION']      = document.getElementById('f-orientation').value.trim();
+  s['ORIENTATION']      = getOrValue();
   s['ACTION']           = document.getElementById('f-action').value;
   s['APPLIED TO']       = getAppliedToValue();
   s['TOOL']             = document.getElementById('f-tool').value.trim();
@@ -629,6 +630,56 @@ function setAppliedToValue(str) {
       addAppliedToRow(part.slice(0, dotIdx).trim(), part.slice(dotIdx + 1).trim());
     } else {
       addAppliedToRow(part, '');
+    }
+  });
+}
+
+// ── Orientation widget ────────────────────────────────────────────────────────
+function addOrRow(left = '', comp = '', detail = '') {
+  const container = document.getElementById('orientation-rows');
+  const row = document.createElement('div');
+  row.className = 'or-row';
+  row.innerHTML =
+    `<input type="text" class="or-left" placeholder="parte componente" value="${esc(left)}">` +
+    `<span class="or-eq">=</span>` +
+    `<input type="text" class="or-comp" list="dl-at-comps" placeholder="componente" value="${esc(comp)}">` +
+    `<span class="or-dot">.</span>` +
+    `<input type="text" class="or-detail" placeholder="dettaglio (opz.)" value="${esc(detail)}">` +
+    `<span class="at-semi">;</span>` +
+    `<button type="button" class="sm danger" onclick="removeOrRow(this)">&#215;</button>`;
+  container.appendChild(row);
+}
+
+function removeOrRow(btn) {
+  btn.closest('.or-row').remove();
+}
+
+function getOrValue() {
+  let result = '';
+  document.querySelectorAll('#orientation-rows .or-row').forEach(row => {
+    const left   = row.querySelector('.or-left').value.trim();
+    const comp   = row.querySelector('.or-comp').value.trim();
+    const detail = row.querySelector('.or-detail').value.trim();
+    if (left && comp) {
+      result += (detail ? `${left} = ${comp}.${detail}` : `${left} = ${comp}`) + '; ';
+    }
+  });
+  return result.trimEnd();
+}
+
+function setOrValue(str) {
+  document.getElementById('orientation-rows').innerHTML = '';
+  const parts = str.split(';').map(p => p.trim()).filter(p => p !== '');
+  parts.forEach(part => {
+    const eqIdx = part.indexOf('=');
+    if (eqIdx === -1) return;  // nessun = → ignorato (backend lo scarta comunque)
+    const left  = part.slice(0, eqIdx).trim();
+    const right = part.slice(eqIdx + 1).trim();
+    const dotIdx = right.indexOf('.');
+    if (dotIdx !== -1) {
+      addOrRow(left, right.slice(0, dotIdx).trim(), right.slice(dotIdx + 1).trim());
+    } else {
+      addOrRow(left, right, '');
     }
   });
 }

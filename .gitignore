@@ -209,11 +209,10 @@ __marimo__/
 
 
 # CUSTOM GITIGNORE
-src/input_files/*
-src/models/cache/*
+extractor_pipeline/src/input_files/*
+extractor_pipeline/src/models/cache/*
 .DS_Store
 
 *.csv
-*.txt
+
 *.yml
-src/vectorstore/*

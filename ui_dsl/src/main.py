@@ -35,15 +35,17 @@ def print_startup_banner():
     print("\nEndpoints:")
     print("   GET  /               Web UI")
     print("   GET  /health         Health check")
-    print("   POST /extract        Extract steps → JSON")
-    print("   POST /extract-csv    Extract steps → CSV")
-    print("\n⚠️  LLM loads on first request (may take several minutes)")
+    print("   POST /extract-csv    Proxy → LLM service")
+    print("   GET  /editor         Step editor")
+    print("   POST /generate-dsl   Generate DSL from CSV")
+    llm_url = __import__('os').environ.get('LLM_SERVICE_URL', 'http://llm:8001')
+    print(f"\n   LLM service: {llm_url}")
     print("Server: http://0.0.0.0:8000")
     print("=" * 60)
 
 
-from blueprints.api import api_bp
-app.register_blueprint(api_bp)
+from blueprints.api_ui import api_ui_bp
+app.register_blueprint(api_ui_bp)
 
 
 @app.route('/')
