@@ -12,7 +12,7 @@ Procedure_DSL/
 │   ├── src/
 │   │   ├── main.py
 │   │   ├── blueprints/api_ui.py
-│   │   ├── templates/       # editor.html, index.html
+│   │   ├── templates/       # editor.html, index.html, cobot.html
 │   │   ├── parser_dsl/      # modelli DSL, generatori interno/esterno
 │   │   ├── pipeline/        # csv_writer, dsl_runner, schema
 │   │   └── output/          # CSV e DSL generati
@@ -32,6 +32,11 @@ Procedure_DSL/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
+├── cobot/                   # Cobot API server (Franka) — non tracciato da git
+│   ├── app/routes/          # robot.py, gripper.py
+│   ├── Dockerfile
+│   └── docker-compose.yml   # per uso standalone con network_mode: host (FCI)
+│
 └── docker-compose.yml
 ```
 
@@ -39,18 +44,33 @@ Procedure_DSL/
 
 ## Avvio
 
+| Servizio    | Porta | Descrizione                              |
+|-------------|-------|------------------------------------------|
+| `ui`        | 8000  | Editor, generazione DSL, pagina Cobot    |
+| `extractor` | 8001  | Estrazione LLM (richiede NVIDIA GPU)     |
+| `cobot`     | 5001  | API robot Franka (richiede `./cobot/`)   |
+
+### Configurazioni disponibili
+
 ```bash
-# Entrambi i servizi
+# Tutto (default): UI + Extractor + Cobot
 docker compose up --build
 
-# Solo UI (senza GPU, per editare CSV già estratti)
+# UI + Extractor (senza cobot)
+docker compose up ui extractor --build
+
+# Solo UI (no GPU — per editing CSV e DSL già estratti)
 docker compose up ui --no-deps --build
+
+# Solo UI + Cobot (no GPU)
+docker compose up ui cobot --no-deps --build
 ```
 
-| Servizio   | Porta | Descrizione                        |
-|------------|-------|------------------------------------|
-| ui         | 8000  | Editor, generazione DSL            |
-| extractor  | 8001  | Estrazione LLM (interno alla rete) |
+> **Nota cobot:** la cartella `./cobot/` non è tracciata da git e va copiata manualmente.
+> Per uso con il robot Franka reale via FCI, avviare il cobot standalone:
+> ```bash
+> cd cobot && docker compose up --build
+> ```
 
 ---
 

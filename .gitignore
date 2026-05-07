@@ -218,3 +218,7 @@ ui_dsl/src/output/*
 *.csv
 
 *.yml
+*.txt
+
+cobot/*
+cobot

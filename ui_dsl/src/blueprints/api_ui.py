@@ -20,6 +20,7 @@ api_ui_bp = Blueprint('api_ui', __name__)
 
 _SRC_DIR = Path(__file__).parent.parent
 _LLM_URL = os.environ.get('LLM_SERVICE_URL', 'http://llm:8001')
+_COBOT_URL = os.environ.get('COBOT_SERVICE_URL', 'http://cobot:5000')
 
 
 def _output_dir() -> Path:
@@ -156,3 +157,29 @@ def download_dsl(filename):
         return jsonify({"error": "File not found"}), 404
     mime = 'application/yaml' if filename.endswith('.yml') else 'text/plain'
     return send_file(str(path), mimetype=mime, as_attachment=True, download_name=filename)
+
+
+# ── Cobot page & proxy ────────────────────────────────────────────────────────
+
+@api_ui_bp.route('/cobot', methods=['GET'])
+def cobot_page():
+    return render_template('cobot.html')
+
+
+@api_ui_bp.route('/cobot-proxy/<path:path>', methods=['GET', 'POST', 'DELETE'])
+def cobot_proxy(path):
+    """Transparent proxy to the cobot API service."""
+    url = f'{_COBOT_URL}/{path}'
+    try:
+        resp = _requests.request(
+            method=request.method,
+            url=url,
+            json=request.get_json(silent=True) if request.method in ('POST',) else None,
+            params=request.args,
+            timeout=30,
+        )
+        return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
+    except _requests.exceptions.ConnectionError:
+        return jsonify({"error": f"Cobot service unreachable at {_COBOT_URL}"}), 503
+    except _requests.exceptions.Timeout:
+        return jsonify({"error": "Cobot service timed out"}), 504

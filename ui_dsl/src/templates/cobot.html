@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cobot Control — Procedure DSL</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; max-width: 1100px; margin: 0 auto; padding: 0 24px 40px; color: #222; }
+
+    nav { display: flex; border-bottom: 2px solid #333; margin-bottom: 24px; padding-top: 16px; }
+    nav a { text-decoration: none; color: #666; padding: 8px 18px; font-family: monospace; font-size: 0.9rem; }
+    nav a.active { color: #222; font-weight: bold; border-bottom: 3px solid #333; margin-bottom: -2px; }
+    nav a:hover:not(.active) { color: #333; background: #f5f5f5; }
+
+    h1 { font-size: 1.4rem; margin-bottom: 20px; }
+    h2 { font-size: 1rem; margin-bottom: 12px; }
+    h3 { font-size: 0.85rem; font-weight: bold; color: #444; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    button {
+      padding: 6px 14px; cursor: pointer; border: 1px solid #555;
+      border-radius: 4px; background: #fff; font-family: monospace; font-size: 0.85rem;
+    }
+    button:hover:not(:disabled) { background: #eee; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: #333; color: #fff; border-color: #333; }
+    button.primary:hover:not(:disabled) { background: #555; }
+    button.danger { color: #c00; border-color: #daa; }
+    button.danger:hover:not(:disabled) { background: #fff0f0; border-color: #c00; }
+    button.sm { padding: 3px 9px; font-size: 0.78rem; }
+
+    input[type=text], input[type=number] {
+      font-family: monospace; font-size: 0.85rem;
+      border: 1px solid #ccc; border-radius: 3px;
+      padding: 4px 7px; background: #fff; color: #222;
+    }
+    input:focus { outline: none; border-color: #555; }
+    input[type=range] { cursor: pointer; accent-color: #333; }
+
+    label { font-size: 0.78rem; color: #666; }
+    .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+    .col { display: flex; flex-direction: column; gap: 3px; }
+    .sep { border: none; border-top: 1px solid #eee; margin: 14px 0; }
+
+    /* ── Status bar ── */
+    #status-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px; background: #f4f4f4;
+      border: 1px solid #ddd; border-radius: 4px;
+      margin-bottom: 20px; font-size: 0.85rem;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+    .dot.online { background: #2a9d2a; }
+    .dot.busy   { background: #e07b00; }
+    .dot.offline { background: #bbb; }
+    #status-text { flex: 1; }
+    .badge {
+      font-size: 0.72rem; background: #eee;
+      border: 1px solid #ccc; border-radius: 10px; padding: 1px 8px;
+    }
+
+    /* ── Panels ── */
+    .panel { border: 1px solid #ddd; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+    .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 700px) { .main-grid { grid-template-columns: 1fr; } }
+
+    /* ── Joint rows ── */
+    .joint-row {
+      display: grid;
+      grid-template-columns: 28px 80px 1fr 72px 30px;
+      align-items: center; gap: 6px;
+      padding: 4px 0;
+    }
+    .joint-row + .joint-row { border-top: 1px solid #f0f0f0; }
+    .joint-id { font-weight: bold; font-size: 0.8rem; color: #444; }
+    .joint-name { font-size: 0.78rem; color: #888; }
+    .joint-num { width: 72px; text-align: right; font-size: 0.82rem; padding: 3px 5px; }
+    .joint-unit { font-size: 0.72rem; color: #aaa; }
+    .joint-range { font-size: 0.68rem; color: #bbb; text-align: right; }
+
+    /* ── Param rows (speed/tolerance/etc.) ── */
+    .param-row {
+      display: grid; grid-template-columns: 120px 1fr 80px 30px;
+      align-items: center; gap: 6px; padding: 4px 0;
+    }
+    .param-row label { font-size: 0.78rem; color: #666; }
+    .param-num { width: 80px; font-size: 0.82rem; padding: 3px 5px; }
+    .param-unit { font-size: 0.72rem; color: #aaa; }
+
+    /* ── Result inline ── */
+    .result-line {
+      margin-top: 6px; font-size: 0.78rem; padding: 3px 0; min-height: 1.1em;
+      border-top: 1px solid #f0f0f0;
+    }
+    .result-line.ok  { color: #2a6e2a; }
+    .result-line.err { color: #c00; }
+
+    /* ── State box ── */
+    .state-box {
+      font-size: 0.78rem; background: #f9f9f9;
+      border: 1px solid #eee; border-radius: 3px;
+      padding: 8px; margin-top: 8px;
+      white-space: pre; max-height: 180px; overflow: auto;
+      display: none;
+    }
+    .state-box.ok  { color: #2a6e2a; }
+    .state-box.err { color: #c00; }
+    .state-box.neutral { color: #555; }
+
+    /* ── Event log ── */
+    #log-panel { margin-top: 14px; }
+    #log-box {
+      background: #111; color: #ddd; font-size: 0.78rem;
+      border-radius: 4px; padding: 10px; height: 200px;
+      overflow-y: auto; font-family: monospace;
+    }
+    .log-ok   { color: #6dbb6d; }
+    .log-err  { color: #f07070; }
+    .log-info { color: #aaa; }
+    .log-ts   { color: #666; margin-right: 6px; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/">Extractor</a>
+  <a href="/editor">Editor</a>
+  <a href="/cobot" class="active">Cobot</a>
+</nav>
+
+<h1>Cobot Control</h1>
+
+<!-- ── Status bar ── -->
+<div id="status-bar">
+  <div class="dot offline" id="conn-dot"></div>
+  <span id="status-text">Checking cobot service…</span>
+  <span class="badge" id="mode-badge" style="display:none"></span>
+  <span class="badge" id="busy-badge" style="display:none;background:#fff3e0;border-color:#e07b00;color:#b05a00">BUSY</span>
+  <button class="sm" onclick="refreshStatus()">Refresh</button>
+  <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:0.78rem">
+    <input type="checkbox" id="autopoll" onchange="toggleAutopoll()"> Auto-refresh ogni
+    <input type="number" id="poll-interval" value="3" min="1" max="60" step="1"
+           style="width:46px;padding:2px 4px;font-size:0.78rem" onchange="toggleAutopoll()"> s
+  </label>
+</div>
+
+<!-- ── Connection ── -->
+<div class="panel">
+  <h2>Connection</h2>
+  <div class="row">
+    <div class="col">
+      <label>Robot IP</label>
+      <input type="text" id="robot-ip" value="172.16.0.3" style="width:160px">
+    </div>
+    <div class="col" style="padding-top:16px">
+      <label><input type="checkbox" id="enforce-rt" checked> Enforce realtime</label>
+    </div>
+    <div style="flex:1"></div>
+    <button class="primary" style="margin-top:16px" onclick="connectRobot()">Connect</button>
+    <button class="danger" style="margin-top:16px" onclick="disconnectRobot()">Disconnect</button>
+    <button class="sm" style="margin-top:16px" onclick="getRobotConfig()">Config</button>
+    <button class="sm" style="margin-top:16px" onclick="runRecovery()">Recovery</button>
+  </div>
+  <div class="result-line" id="conn-result"></div>
+</div>
+
+<!-- ── Main grid ── -->
+<div class="main-grid">
+
+  <!-- LEFT: Motion -->
+  <div>
+    <!-- Move Home -->
+    <div class="panel">
+      <h3>Move Home</h3>
+      <div class="param-row">
+        <label>Speed factor</label>
+        <input type="range" id="home-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('home-speed-s','home-speed-n')">
+        <input type="number" class="param-num" id="home-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('home-speed-n','home-speed-s')">
+        <span class="param-unit">0–1</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" onclick="moveHome()">Go Home</button>
+      </div>
+      <div class="result-line" id="home-result"></div>
+    </div>
+
+    <!-- Move Joints -->
+    <div class="panel">
+      <h3>Move to Joint Positions</h3>
+      <div id="joints-rows"></div>
+      <div class="param-row" style="margin-top:8px">
+        <label>Speed factor</label>
+        <input type="range" id="joints-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('joints-speed-s','joints-speed-n')">
+        <input type="number" class="param-num" id="joints-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('joints-speed-n','joints-speed-s')">
+        <span class="param-unit">0–1</span>
+      </div>
+      <div class="param-row">
+        <label>Tolerance</label>
+        <input type="range" id="joints-tol-s" min="0.001" max="0.2" step="0.001" value="0.04" oninput="sync('joints-tol-s','joints-tol-n')">
+        <input type="number" class="param-num" id="joints-tol-n" min="0.001" max="0.2" step="0.001" value="0.04" oninput="sync('joints-tol-n','joints-tol-s')">
+        <span class="param-unit">rad</span>
+      </div>
+      <div class="row" style="margin-top:10px;gap:6px">
+        <button class="primary" onclick="moveJoints()">Move</button>
+        <button class="sm" onclick="setHomeValues()">Load Home</button>
+      </div>
+      <div class="result-line" id="joints-result"></div>
+    </div>
+
+    <!-- Move Relative -->
+    <div class="panel">
+      <h3>Move Relative (joint deltas)</h3>
+      <div id="deltas-rows"></div>
+      <div class="param-row" style="margin-top:8px">
+        <label>Speed factor</label>
+        <input type="range" id="rel-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-s','rel-speed-n')">
+        <input type="number" class="param-num" id="rel-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-n','rel-speed-s')">
+        <span class="param-unit">0–1</span>
+      </div>
+      <div class="row" style="margin-top:10px;gap:6px">
+        <button class="primary" onclick="moveRelative()">Move Relative</button>
+        <button class="sm" onclick="zeroDeltas()">Zero All</button>
+      </div>
+      <div class="result-line" id="rel-result"></div>
+    </div>
+
+    <!-- Impedance -->
+    <div class="panel">
+      <h3>Impedance Control</h3>
+      <div id="imp-rows"></div>
+      <div class="param-row" style="margin-top:8px">
+        <label>Duration</label>
+        <input type="range" id="imp-dur-s" min="0.5" max="30" step="0.5" value="5" oninput="sync('imp-dur-s','imp-dur-n')">
+        <input type="number" class="param-num" id="imp-dur-n" min="0.5" max="30" step="0.5" value="5" oninput="sync('imp-dur-n','imp-dur-s')">
+        <span class="param-unit">s</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" onclick="runImpedance()">Run Impedance</button>
+      </div>
+      <div class="result-line" id="imp-result"></div>
+    </div>
+
+    <!-- Pick & Place -->
+    <div class="panel">
+      <h3>Pick &amp; Place</h3>
+      <div class="param-row">
+        <label>Grasp width</label>
+        <input type="range" id="pp-width-s" min="0" max="85" step="1" value="50" oninput="sync('pp-width-s','pp-width-n')">
+        <input type="number" class="param-num" id="pp-width-n" min="0" max="85" step="1" value="50" oninput="sync('pp-width-n','pp-width-s')">
+        <span class="param-unit">mm</span>
+      </div>
+      <div class="param-row">
+        <label>Grasp force</label>
+        <input type="range" id="pp-force-s" min="0" max="140" step="1" value="60" oninput="sync('pp-force-s','pp-force-n')">
+        <input type="number" class="param-num" id="pp-force-n" min="0" max="140" step="1" value="60" oninput="sync('pp-force-n','pp-force-s')">
+        <span class="param-unit">N</span>
+      </div>
+      <div class="param-row">
+        <label>Speed factor</label>
+        <input type="range" id="pp-speed-s" min="0.01" max="1" step="0.01" value="0.15" oninput="sync('pp-speed-s','pp-speed-n')">
+        <input type="number" class="param-num" id="pp-speed-n" min="0.01" max="1" step="0.01" value="0.15" oninput="sync('pp-speed-n','pp-speed-s')">
+        <span class="param-unit">0–1</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" onclick="pickAndPlace()">Run Pick &amp; Place</button>
+      </div>
+      <div class="result-line" id="pp-result"></div>
+    </div>
+
+    <!-- Collision Behavior -->
+    <div class="panel">
+      <h3>Collision Behavior</h3>
+      <p style="font-size:0.78rem;color:#888;margin-bottom:8px">Soglie come array JSON di 7 float (lascia vuoto per non modificare)</p>
+      <div class="col" style="gap:5px">
+        <label>lower_torque (Nm)</label>
+        <input type="text" id="cb-lt" placeholder='[20,20,18,18,16,14,12]' style="width:100%">
+        <label>upper_torque (Nm)</label>
+        <input type="text" id="cb-ut" placeholder='[87,87,87,87,12,12,12]' style="width:100%">
+        <label>lower_force (N)</label>
+        <input type="text" id="cb-lf" placeholder='[20,20,20,25,25,25,25]' style="width:100%">
+        <label>upper_force (N)</label>
+        <input type="text" id="cb-uf" placeholder='[99,99,99,99,99,99,99]' style="width:100%">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" onclick="setCollisionBehavior()">Set</button>
+      </div>
+      <div class="result-line" id="cb-result"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Gripper + Robot State -->
+  <div>
+    <!-- Robot State -->
+    <div class="panel">
+      <h3>Robot State &amp; Errors</h3>
+      <div class="row" style="flex-wrap:wrap;gap:5px">
+        <button class="sm" onclick="getRobotState()">State</button>
+        <button class="sm" onclick="getRobotStatus()">Status</button>
+        <button class="sm" onclick="getRobotErrors()">Errors</button>
+        <button class="sm danger" onclick="clearRobotErrors()">Clear Errors</button>
+      </div>
+      <div class="state-box" id="robot-state-box"></div>
+    </div>
+
+    <!-- Gripper State -->
+    <div class="panel">
+      <h3>Gripper State &amp; Errors</h3>
+      <div class="row" style="flex-wrap:wrap;gap:5px">
+        <button class="sm" onclick="getGripperState()">State</button>
+        <button class="sm" onclick="getGripperErrors()">Errors</button>
+        <button class="sm danger" onclick="clearGripperErrors()">Clear Errors</button>
+        <button class="sm" onclick="gripperResetLock()">Reset Lock</button>
+        <button class="sm" onclick="gripperReconnect()">Reconnect</button>
+      </div>
+      <div class="state-box" id="gripper-state-box"></div>
+    </div>
+
+    <!-- Gripper Commands -->
+    <div class="panel">
+      <h3>Gripper Commands</h3>
+
+      <div style="margin-bottom:10px">
+        <div class="row"><button class="primary" onclick="gripperHome()">Homing</button></div>
+        <div class="result-line" id="ghome-result"></div>
+      </div>
+
+      <hr class="sep">
+      <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Open</p>
+      <div class="param-row">
+        <label>Width</label>
+        <input type="range" id="gopen-w-s" min="0" max="85" step="1" value="80" oninput="sync('gopen-w-s','gopen-w-n')">
+        <input type="number" class="param-num" id="gopen-w-n" min="0" max="85" step="1" value="80" oninput="sync('gopen-w-n','gopen-w-s')">
+        <span class="param-unit">mm</span>
+      </div>
+      <div class="param-row">
+        <label>Speed</label>
+        <input type="range" id="gopen-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gopen-sp-s','gopen-sp-n')">
+        <input type="number" class="param-num" id="gopen-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gopen-sp-n','gopen-sp-s')">
+        <span class="param-unit">m/s</span>
+      </div>
+      <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperOpen()">Open</button></div>
+      <div class="result-line" id="gopen-result"></div>
+
+      <hr class="sep">
+      <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Close</p>
+      <div class="param-row">
+        <label>Speed</label>
+        <input type="range" id="gclose-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gclose-sp-s','gclose-sp-n')">
+        <input type="number" class="param-num" id="gclose-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gclose-sp-n','gclose-sp-s')">
+        <span class="param-unit">m/s</span>
+      </div>
+      <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperClose()">Close</button></div>
+      <div class="result-line" id="gclose-result"></div>
+
+      <hr class="sep">
+      <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Grasp</p>
+      <div class="param-row">
+        <label>Width</label>
+        <input type="range" id="ggrasp-w-s" min="0" max="85" step="1" value="50" oninput="sync('ggrasp-w-s','ggrasp-w-n')">
+        <input type="number" class="param-num" id="ggrasp-w-n" min="0" max="85" step="1" value="50" oninput="sync('ggrasp-w-n','ggrasp-w-s')">
+        <span class="param-unit">mm</span>
+      </div>
+      <div class="param-row">
+        <label>Force</label>
+        <input type="range" id="ggrasp-f-s" min="0" max="140" step="1" value="60" oninput="sync('ggrasp-f-s','ggrasp-f-n')">
+        <input type="number" class="param-num" id="ggrasp-f-n" min="0" max="140" step="1" value="60" oninput="sync('ggrasp-f-n','ggrasp-f-s')">
+        <span class="param-unit">N</span>
+      </div>
+      <div class="param-row">
+        <label>Speed</label>
+        <input type="range" id="ggrasp-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('ggrasp-sp-s','ggrasp-sp-n')">
+        <input type="number" class="param-num" id="ggrasp-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('ggrasp-sp-n','ggrasp-sp-s')">
+        <span class="param-unit">m/s</span>
+      </div>
+      <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperGrasp()">Grasp</button></div>
+      <div class="result-line" id="ggrasp-result"></div>
+
+      <hr class="sep">
+      <div class="row">
+        <button onclick="gripperRelease()">Release</button>
+        <button class="danger" onclick="gripperStop()">Stop</button>
+      </div>
+      <div class="result-line" id="grel-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Event Log ── -->
+<div class="panel" id="log-panel">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+    <h2 style="margin:0">Event Log</h2>
+    <button class="sm" onclick="clearLog()">Clear</button>
+    <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:0.78rem">
+      <input type="checkbox" id="autoscroll" checked> Auto-scroll
+    </label>
+  </div>
+  <div id="log-box"></div>
+</div>
+
+<script>
+  // ── Joint definitions (Franka Panda) ────────────────────────────────────
+  const JOINTS = [
+    { id:'J1', name:'Base',       min:-2.897, max: 2.897, home: 0      },
+    { id:'J2', name:'Shoulder',   min:-1.763, max: 1.763, home:-0.785  },
+    { id:'J3', name:'Elbow rot',  min:-2.897, max: 2.897, home: 0      },
+    { id:'J4', name:'Wrist 1',    min:-3.072, max:-0.070, home:-2.356  },
+    { id:'J5', name:'Wrist 2',    min:-2.897, max: 2.897, home: 0      },
+    { id:'J6', name:'Wrist 3',    min:-0.018, max: 3.753, home: 1.571  },
+    { id:'J7', name:'Flange',     min:-2.897, max: 2.897, home: 0.785  },
+  ];
+
+  // Build joint rows dynamically
+  function buildJointRows(containerId, cls, deltaMode) {
+    const c = document.getElementById(containerId);
+    JOINTS.forEach((j, i) => {
+      const defVal = deltaMode ? 0 : j.home;
+      const minV = deltaMode ? -1 : j.min;
+      const maxV = deltaMode ? 1  : j.max;
+      const sid = `${cls}-s-${i}`, nid = `${cls}-n-${i}`;
+      c.innerHTML += `
+        <div class="joint-row">
+          <span class="joint-id">${j.id}</span>
+          <span class="joint-name">${j.name}</span>
+          <input type="range" id="${sid}" min="${minV}" max="${maxV}" step="0.001"
+                 value="${defVal}" oninput="sync('${sid}','${nid}')">
+          <input type="number" class="joint-num" id="${nid}"
+                 min="${minV}" max="${maxV}" step="0.001" value="${defVal}"
+                 oninput="sync('${nid}','${sid}')">
+          <span class="joint-unit">rad</span>
+        </div>`;
+    });
+  }
+  buildJointRows('joints-rows', 'jp', false);
+  buildJointRows('deltas-rows', 'jd', true);
+  buildJointRows('imp-rows',    'ji', false);
+
+  function getJointVals(cls) {
+    return JOINTS.map((_, i) => parseFloat(document.getElementById(`${cls}-n-${i}`).value));
+  }
+  function setHomeValues() {
+    JOINTS.forEach((j, i) => {
+      document.getElementById(`jp-n-${i}`).value = j.home;
+      document.getElementById(`jp-s-${i}`).value = j.home;
+    });
+  }
+  function zeroDeltas() {
+    JOINTS.forEach((_, i) => {
+      document.getElementById(`jd-n-${i}`).value = 0;
+      document.getElementById(`jd-s-${i}`).value = 0;
+    });
+  }
+
+  // ── Slider ↔ number sync ────────────────────────────────────────────────
+  function sync(srcId, dstId) {
+    document.getElementById(dstId).value = document.getElementById(srcId).value;
+  }
+  function n(id) { return parseFloat(document.getElementById(id).value); }
+
+  // ── Event log ───────────────────────────────────────────────────────────
+  function ts() {
+    return new Date().toTimeString().slice(0, 8);
+  }
+  function log(method, path, ok, data) {
+    const box = document.getElementById('log-box');
+    const cls = ok ? 'log-ok' : 'log-err';
+    const summary = ok
+      ? (data.status || data.operation || JSON.stringify(data)).toString().slice(0, 80)
+      : (data.error || data.message || JSON.stringify(data)).toString().slice(0, 80);
+    const line = document.createElement('div');
+    line.innerHTML =
+      `<span class="log-ts">${ts()}</span>` +
+      `<span class="${ok ? 'log-ok' : 'log-err'}">${method} /${path}</span>` +
+      ` <span class="${cls}">${summary}</span>`;
+    box.appendChild(line);
+    if (document.getElementById('autoscroll').checked)
+      box.scrollTop = box.scrollHeight;
+  }
+  function logInfo(msg) {
+    const box = document.getElementById('log-box');
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="log-ts">${ts()}</span><span class="log-info">${msg}</span>`;
+    box.appendChild(line);
+    if (document.getElementById('autoscroll').checked) box.scrollTop = box.scrollHeight;
+  }
+  function clearLog() { document.getElementById('log-box').innerHTML = ''; }
+
+  // ── Fetch helper ────────────────────────────────────────────────────────
+  const PROXY = '/cobot-proxy';
+  async function cf(method, path, body) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    try {
+      const r = await fetch(`${PROXY}/${path}`, opts);
+      const data = await r.json().catch(() => ({}));
+      log(method, path, r.ok, data);
+      return { ok: r.ok, data };
+    } catch(e) {
+      log(method, path, false, { error: e.message });
+      return { ok: false, data: { error: e.message } };
+    }
+  }
+
+  function setResult(id, data, ok) {
+    const el = document.getElementById(id);
+    el.className = 'result-line ' + (ok ? 'ok' : 'err');
+    el.textContent = ok
+      ? (data.status || data.operation || JSON.stringify(data)).toString().slice(0, 120)
+      : (data.error || data.message || JSON.stringify(data)).toString().slice(0, 120);
+  }
+  function showState(id, data, ok, neutral) {
+    const box = document.getElementById(id);
+    box.style.display = '';
+    box.className = 'state-box ' + (neutral ? 'neutral' : (ok ? 'ok' : 'err'));
+    box.textContent = JSON.stringify(data, null, 2);
+  }
+
+  // ── Status ──────────────────────────────────────────────────────────────
+  async function refreshStatus() {
+    try {
+      const { ok, data } = await cf('GET', 'health');
+      const connected = data.connected ?? false;
+      const busy = data.busy ?? false;
+      document.getElementById('conn-dot').className =
+        'dot ' + (connected ? (busy ? 'busy' : 'online') : 'offline');
+      document.getElementById('status-text').textContent =
+        connected ? (busy ? 'Robot busy' : 'Robot connected — ' + (data.robot_ip || '')) : 'Robot not connected';
+      const mb = document.getElementById('mode-badge');
+      if (data.mode) { mb.textContent = data.mode; mb.style.display = ''; } else mb.style.display = 'none';
+      document.getElementById('busy-badge').style.display = busy ? '' : 'none';
+    } catch(e) {
+      document.getElementById('conn-dot').className = 'dot offline';
+      document.getElementById('status-text').textContent = 'Cobot service unreachable';
+    }
+  }
+
+  let _pollTimer = null;
+  function toggleAutopoll() {
+    clearInterval(_pollTimer);
+    _pollTimer = null;
+    if (!document.getElementById('autopoll').checked) return;
+    const sec = Math.max(1, parseFloat(document.getElementById('poll-interval').value) || 3);
+    document.getElementById('poll-interval').value = sec;
+    _pollTimer = setInterval(refreshStatus, sec * 1000);
+  }
+  function startAutopoll() { toggleAutopoll(); }
+
+  // ── Connection ──────────────────────────────────────────────────────────
+  async function connectRobot() {
+    const ip = document.getElementById('robot-ip').value.trim();
+    const enforce_realtime = document.getElementById('enforce-rt').checked;
+    const { ok, data } = await cf('POST', 'api/robot/connect', { robot_ip: ip, enforce_realtime });
+    setResult('conn-result', data, ok);
+    refreshStatus();
+  }
+  async function disconnectRobot() {
+    const { ok, data } = await cf('POST', 'api/robot/disconnect');
+    setResult('conn-result', data, ok);
+    refreshStatus();
+  }
+  async function getRobotConfig() {
+    const { ok, data } = await cf('GET', 'api/robot/config');
+    setResult('conn-result', data, ok);
+  }
+  async function runRecovery() {
+    const { ok, data } = await cf('POST', 'api/robot/recovery');
+    setResult('conn-result', data, ok);
+    refreshStatus();
+  }
+
+  // ── Robot state ─────────────────────────────────────────────────────────
+  async function getRobotState() {
+    const { ok, data } = await cf('GET', 'api/robot/state');
+    showState('robot-state-box', data, ok, false);
+  }
+  async function getRobotStatus() {
+    const { ok, data } = await cf('GET', 'api/robot/status');
+    showState('robot-state-box', data, ok, true);
+  }
+  async function getRobotErrors() {
+    const { ok, data } = await cf('GET', 'api/robot/errors');
+    showState('robot-state-box', data, ok, true);
+  }
+  async function clearRobotErrors() {
+    const { ok, data } = await cf('DELETE', 'api/robot/errors');
+    showState('robot-state-box', data, ok, false);
+  }
+
+  // ── Motion ──────────────────────────────────────────────────────────────
+  async function moveHome() {
+    const { ok, data } = await cf('POST', 'api/motion/move-home', { speed_factor: n('home-speed-n') });
+    setResult('home-result', data, ok);
+  }
+  async function moveJoints() {
+    const { ok, data } = await cf('POST', 'api/motion/move-joints', {
+      positions: getJointVals('jp'),
+      speed_factor: n('joints-speed-n'),
+      tolerance: n('joints-tol-n'),
+    });
+    setResult('joints-result', data, ok);
+  }
+  async function moveRelative() {
+    const { ok, data } = await cf('POST', 'api/motion/move-relative', {
+      deltas: getJointVals('jd'),
+      speed_factor: n('rel-speed-n'),
+    });
+    setResult('rel-result', data, ok);
+  }
+  async function runImpedance() {
+    const { ok, data } = await cf('POST', 'api/motion/impedance', {
+      positions: getJointVals('ji'),
+      duration: n('imp-dur-n'),
+    });
+    setResult('imp-result', data, ok);
+  }
+  async function pickAndPlace() {
+    const { ok, data } = await cf('POST', 'api/motion/pick-and-place', {
+      grasp_width_mm: n('pp-width-n'),
+      grasp_force: n('pp-force-n'),
+      speed_factor: n('pp-speed-n'),
+    });
+    setResult('pp-result', data, ok);
+  }
+  async function setCollisionBehavior() {
+    const parse = id => {
+      const v = document.getElementById(id).value.trim();
+      if (!v) return undefined;
+      try { return JSON.parse(v); } catch { return undefined; }
+    };
+    const body = {};
+    const lt = parse('cb-lt'); if (lt) body.lower_torque = lt;
+    const ut = parse('cb-ut'); if (ut) body.upper_torque = ut;
+    const lf = parse('cb-lf'); if (lf) body.lower_force  = lf;
+    const uf = parse('cb-uf'); if (uf) body.upper_force  = uf;
+    const { ok, data } = await cf('POST', 'api/robot/collision-behavior', body);
+    setResult('cb-result', data, ok);
+  }
+
+  // ── Gripper ─────────────────────────────────────────────────────────────
+  async function getGripperState() {
+    const { ok, data } = await cf('GET', 'api/gripper/state');
+    showState('gripper-state-box', data, ok, false);
+  }
+  async function getGripperErrors() {
+    const { ok, data } = await cf('GET', 'api/gripper/errors');
+    showState('gripper-state-box', data, ok, true);
+  }
+  async function clearGripperErrors() {
+    const { ok, data } = await cf('DELETE', 'api/gripper/errors');
+    showState('gripper-state-box', data, ok, false);
+  }
+  async function gripperResetLock() {
+    const { ok, data } = await cf('POST', 'api/gripper/reset-lock');
+    showState('gripper-state-box', data, ok, false);
+  }
+  async function gripperReconnect() {
+    const { ok, data } = await cf('POST', 'api/gripper/reconnect');
+    showState('gripper-state-box', data, ok, false);
+  }
+  async function gripperHome() {
+    const { ok, data } = await cf('POST', 'api/gripper/home');
+    setResult('ghome-result', data, ok);
+  }
+  async function gripperOpen() {
+    const { ok, data } = await cf('POST', 'api/gripper/open',
+      { width_mm: n('gopen-w-n'), speed: n('gopen-sp-n') });
+    setResult('gopen-result', data, ok);
+  }
+  async function gripperClose() {
+    const { ok, data } = await cf('POST', 'api/gripper/close', { speed: n('gclose-sp-n') });
+    setResult('gclose-result', data, ok);
+  }
+  async function gripperGrasp() {
+    const { ok, data } = await cf('POST', 'api/gripper/grasp',
+      { width_mm: n('ggrasp-w-n'), force: n('ggrasp-f-n'), speed: n('ggrasp-sp-n') });
+    setResult('ggrasp-result', data, ok);
+  }
+  async function gripperRelease() {
+    const { ok, data } = await cf('POST', 'api/gripper/release');
+    setResult('grel-result', data, ok);
+  }
+  async function gripperStop() {
+    const { ok, data } = await cf('POST', 'api/gripper/stop');
+    setResult('grel-result', data, ok);
+  }
+
+  // ── Init ────────────────────────────────────────────────────────────────
+  logInfo('Page loaded — cobot proxy at /cobot-proxy');
+  refreshStatus();
+  startAutopoll();
+</script>
+</body>
+</html>
