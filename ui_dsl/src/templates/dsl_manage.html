@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSL Manage — Procedure DSL</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; max-width: 900px; margin: 0 auto; padding: 0 24px 40px; color: #222; }
+
+    nav { display: flex; border-bottom: 2px solid #333; margin-bottom: 24px; padding-top: 16px; }
+    nav a { text-decoration: none; color: #666; padding: 8px 18px; font-family: monospace; font-size: 0.9rem; }
+    nav a.active { color: #222; font-weight: bold; border-bottom: 3px solid #333; margin-bottom: -2px; }
+    nav a:hover:not(.active) { color: #333; background: #f5f5f5; }
+
+    h1 { font-size: 1.4rem; margin-bottom: 20px; }
+    h3 { font-size: 0.82rem; font-weight: bold; color: #444; margin-bottom: 8px;
+         text-transform: uppercase; letter-spacing: 0.05em; }
+
+    button { padding: 6px 14px; cursor: pointer; border: 1px solid #555;
+             border-radius: 4px; background: #fff; font-family: monospace; font-size: 0.85rem; }
+    button:hover:not(:disabled) { background: #eee; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: #333; color: #fff; border-color: #333; }
+    button.primary:hover:not(:disabled) { background: #555; }
+
+    select { font-family: monospace; font-size: 0.85rem;
+             border: 1px solid #ccc; border-radius: 3px;
+             padding: 4px 7px; background: #fff; color: #222; }
+    select:focus { outline: none; border-color: #555; }
+
+    label { font-size: 0.78rem; color: #666; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .col { display: flex; flex-direction: column; gap: 3px; }
+
+    /* Msg */
+    #msg { font-size: 0.82rem; padding: 7px 12px; border-radius: 4px;
+           margin-bottom: 16px; display: none; }
+    #msg.ok  { background: #e8f4ec; border: 1px solid #8bc89a; color: #1a6630; }
+    #msg.err { background: #fdecea; border: 1px solid #e8a0a0; color: #c00; }
+
+    /* Cards */
+    .card { border: 1px solid #ddd; border-radius: 6px; padding: 18px 20px; margin-bottom: 16px; }
+    .card-title { font-size: 1rem; font-weight: bold; margin-bottom: 6px; }
+    .card-sub { font-size: 0.8rem; color: #777; margin-bottom: 14px; }
+
+    .result { font-size: 0.82rem; margin-top: 10px; color: #555; min-height: 1.2em; }
+    .result a { color: #1a5a8a; text-decoration: none; }
+    .result a:hover { text-decoration: underline; }
+    .result.err { color: #c00; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/">Extractor</a>
+  <a href="/editor">Editor</a>
+  <a href="/cobot">Cobot</a>
+  <a href="/dsl-cobot">DSL Cobot</a>
+  <a href="/dsl-manage" class="active">DSL Manage</a>
+</nav>
+
+<h1>DSL Manage</h1>
+<div id="msg"></div>
+
+<!-- ── Internal → External ──────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">Internal DSL → External DSL</div>
+  <div class="card-sub">Convert <code>*_internal_DSL.txt</code> to <code>*_external_DSL.yml</code></div>
+  <div class="row">
+    <div class="col" style="flex:1; min-width:240px;">
+      <label>Internal DSL file</label>
+      <select id="int-select" style="width:100%;">
+        <option value="">— select —</option>
+      </select>
+    </div>
+    <button class="primary" style="align-self:flex-end;"
+            onclick="convertDsl('internal_to_external', 'int-select', 'int-result')">Convert</button>
+  </div>
+  <div id="int-result" class="result"></div>
+</div>
+
+<!-- ── External → Internal ──────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">External DSL → Internal DSL</div>
+  <div class="card-sub">Convert <code>*_external_DSL.yml</code> to <code>*_internal_DSL.txt</code></div>
+  <div class="row">
+    <div class="col" style="flex:1; min-width:240px;">
+      <label>External DSL file</label>
+      <select id="ext-select" style="width:100%;">
+        <option value="">— select —</option>
+      </select>
+    </div>
+    <button class="primary" style="align-self:flex-end;"
+            onclick="convertDsl('external_to_internal', 'ext-select', 'ext-result')">Convert</button>
+  </div>
+  <div id="ext-result" class="result"></div>
+</div>
+
+<script>
+// ── Boot ───────────────────────────────────────────────────────────────────
+(async () => { await loadLists(); })();
+
+async function loadLists() {
+  try {
+    const r = await fetch('/dsl-cobot/list-dsl');
+    const d = await r.json();
+
+    const intSel = document.getElementById('int-select');
+    for (const f of (d.internal || [])) {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      intSel.appendChild(o);
+    }
+
+    const extSel = document.getElementById('ext-select');
+    for (const f of (d.external || [])) {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      extSel.appendChild(o);
+    }
+  } catch(e) { console.error('list load failed', e); }
+}
+
+async function refreshAfterConvert() {
+  try {
+    const r = await fetch('/dsl-cobot/list-dsl');
+    const d = await r.json();
+
+    const intSel = document.getElementById('int-select');
+    const intVal = intSel.value;
+    intSel.innerHTML = '<option value="">— select —</option>';
+    for (const f of (d.internal || [])) {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      if (f === intVal) o.selected = true;
+      intSel.appendChild(o);
+    }
+
+    const extSel = document.getElementById('ext-select');
+    const extVal = extSel.value;
+    extSel.innerHTML = '<option value="">— select —</option>';
+    for (const f of (d.external || [])) {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      if (f === extVal) o.selected = true;
+      extSel.appendChild(o);
+    }
+  } catch(e) { console.error('list refresh failed', e); }
+}
+
+async function convertDsl(direction, selId, resId) {
+  const filename = document.getElementById(selId).value;
+  if (!filename) { showMsg('Select a file first', 'err'); return; }
+  const res = document.getElementById(resId);
+  res.className = 'result';
+  res.innerHTML = '<em>Converting…</em>';
+  try {
+    const r = await fetch('/dsl-cobot/convert', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({direction, filename})
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      res.className = 'result err';
+      res.textContent = 'Error: ' + (d.error || 'Conversion failed');
+      return;
+    }
+    res.innerHTML =
+      `✓ Saved as <strong>${esc(d.output_filename)}</strong> — ` +
+      `<a href="${esc(d.download_url)}" download>Download</a>`;
+    await refreshAfterConvert();
+  } catch(e) {
+    res.className = 'result err';
+    res.textContent = 'Error: ' + e.message;
+  }
+}
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  if (!text) { el.style.display = 'none'; return; }
+  el.className = type; el.textContent = text; el.style.display = 'block';
+}
+</script>
+</body>
+</html>

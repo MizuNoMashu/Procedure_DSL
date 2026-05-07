@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSL for Cobot — Procedure DSL</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; max-width: 1200px; margin: 0 auto; padding: 0 24px 40px; color: #222; }
+
+    nav { display: flex; border-bottom: 2px solid #333; margin-bottom: 24px; padding-top: 16px; }
+    nav a { text-decoration: none; color: #666; padding: 8px 18px; font-family: monospace; font-size: 0.9rem; }
+    nav a.active { color: #222; font-weight: bold; border-bottom: 3px solid #333; margin-bottom: -2px; }
+    nav a:hover:not(.active) { color: #333; background: #f5f5f5; }
+
+    h1 { font-size: 1.4rem; margin-bottom: 20px; }
+    h2 { font-size: 1rem; margin-bottom: 12px; }
+    h3 { font-size: 0.82rem; font-weight: bold; color: #444; margin-bottom: 8px;
+         text-transform: uppercase; letter-spacing: 0.05em; }
+
+    button { padding: 6px 14px; cursor: pointer; border: 1px solid #555;
+             border-radius: 4px; background: #fff; font-family: monospace; font-size: 0.85rem; }
+    button:hover:not(:disabled) { background: #eee; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: #333; color: #fff; border-color: #333; }
+    button.primary:hover:not(:disabled) { background: #555; }
+    button.success { background: #1a6630; color: #fff; border-color: #1a6630; }
+    button.success:hover:not(:disabled) { background: #256b39; }
+    button.danger { color: #c00; border-color: #daa; }
+    button.danger:hover:not(:disabled) { background: #fff0f0; border-color: #c00; }
+    button.sm { padding: 3px 9px; font-size: 0.78rem; }
+
+    select, input[type=text], input[type=number] {
+      font-family: monospace; font-size: 0.85rem;
+      border: 1px solid #ccc; border-radius: 3px;
+      padding: 4px 7px; background: #fff; color: #222;
+    }
+    select:focus, input:focus { outline: none; border-color: #555; }
+
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+    .col { display: flex; flex-direction: column; gap: 3px; }
+    label { font-size: 0.78rem; color: #666; }
+    .sep { border: none; border-top: 1px solid #eee; margin: 14px 0; }
+    .panel { border: 1px solid #ddd; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+
+    /* Badges */
+    .badge { font-size: 0.72rem; border-radius: 10px; padding: 2px 9px;
+             display: inline-block; white-space: nowrap; }
+    .badge.human { background: #f0f0f0; border: 1px solid #ccc; color: #666; }
+    .badge.cobot { background: #e8f4fd; border: 1px solid #90c6e8; color: #1a5a8a; }
+
+    /* Steps table */
+    #steps-table-wrap { overflow-x: auto; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { background: #f5f5f5; text-align: left; padding: 8px 10px;
+         border-bottom: 2px solid #ccc; font-size: 0.78rem; font-weight: bold; }
+    td { padding: 7px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:hover td { background: #fafafa; }
+    .td-num { font-weight: bold; color: #666; width: 34px; }
+    .td-desc { max-width: 280px; font-size: 0.83rem; }
+    .td-comp { font-size: 0.77rem; color: #777; max-width: 160px; }
+    .td-ops { max-width: 240px; }
+    .td-act { width: 70px; }
+    .op-tag { display: inline-block; background: #e8f4fd; border: 1px solid #90c6e8;
+              border-radius: 3px; padding: 1px 5px; font-size: 0.7rem; color: #1a5a8a;
+              margin: 1px 2px 1px 0; word-break: break-all; max-width: 220px;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+
+    /* Execute panel */
+    #exec-panel { display: none; }
+    .exec-card { border: 2px solid #ddd; border-radius: 8px; padding: 20px; background: #fff; }
+    .exec-meta { font-size: 0.78rem; color: #888; margin-bottom: 8px; }
+    .exec-desc { font-size: 1rem; font-weight: bold; margin-bottom: 14px; }
+    .exec-components { font-size: 0.78rem; color: #666; margin-bottom: 14px; }
+    .human-notice { background: #fffbea; border: 1px solid #e8d96a; border-radius: 4px;
+                    padding: 12px 16px; font-size: 0.88rem; }
+    .exec-op-row { display: flex; align-items: center; gap: 8px; padding: 6px 0;
+                   border-bottom: 1px solid #f0f0f0; font-size: 0.83rem; }
+    .exec-op-row:last-child { border-bottom: none; }
+    .exec-op-str { flex: 1; word-break: break-all; }
+    .op-status { min-width: 18px; text-align: center; }
+
+    /* Modal */
+    .overlay { display: none; position: fixed; inset: 0;
+               background: rgba(0,0,0,0.45); z-index: 1000;
+               align-items: center; justify-content: center; }
+    .overlay.open { display: flex; }
+    .modal { background: #fff; border-radius: 8px; padding: 24px 28px;
+             max-width: 560px; width: 94%; max-height: 82vh; overflow-y: auto;
+             position: relative; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+    .modal-close { position: absolute; top: 12px; right: 14px;
+                   background: none; border: none; font-size: 1.1rem;
+                   cursor: pointer; color: #888; }
+    .op-item { display: flex; align-items: flex-start; gap: 6px;
+               padding: 5px 0; border-bottom: 1px solid #f0f0f0; }
+    .op-item:last-child { border-bottom: none; }
+    .op-item-str { flex: 1; font-size: 0.8rem; word-break: break-all; }
+    .param-block { margin-bottom: 10px; }
+    .param-block label { display: block; margin-bottom: 3px; }
+    .param-hint { font-size: 0.71rem; color: #999; margin-top: 2px; }
+
+    /* Toolbar */
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .spacer { flex: 1; }
+
+    /* Msg */
+    #msg { font-size: 0.82rem; padding: 7px 12px; border-radius: 4px;
+           margin-bottom: 12px; display: none; }
+    #msg.ok  { background: #e8f4ec; border: 1px solid #8bc89a; color: #1a6630; }
+    #msg.err { background: #fdecea; border: 1px solid #e8a0a0; color: #c00; }
+
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/">Extractor</a>
+  <a href="/editor">Editor</a>
+  <a href="/cobot">Cobot</a>
+  <a href="/dsl-cobot" class="active">DSL Cobot</a>
+  <a href="/dsl-manage">DSL Manage</a>
+</nav>
+
+<h1>DSL for Cobot</h1>
+<div id="msg"></div>
+
+<!-- ── Load DSL ─────────────────────────────────────────────────────────── -->
+<div class="panel">
+  <h3>Load Procedure DSL</h3>
+  <div class="row">
+    <div class="col" style="flex:1; min-width:220px;">
+      <label>Internal DSL file</label>
+      <select id="dsl-select">
+        <option value="">— select —</option>
+      </select>
+    </div>
+    <button class="primary" onclick="loadDsl()" style="align-self:flex-end;">Load</button>
+  </div>
+  <div id="load-info" style="font-size:0.8rem; color:#666; margin-top:8px;"></div>
+</div>
+
+<!-- ── Steps table ──────────────────────────────────────────────────────── -->
+<div id="steps-section" style="display:none;">
+  <div class="toolbar">
+    <span id="steps-title" style="font-weight:bold; font-size:0.95rem;"></span>
+    <div class="spacer"></div>
+    <button onclick="enterExecMode()" id="btn-run">&#9654; Run Procedure</button>
+    <button class="primary" onclick="saveOps()">Save to DSL</button>
+  </div>
+  <div id="steps-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="td-num">#</th>
+          <th class="td-desc">Description</th>
+          <th class="td-comp">Components</th>
+          <th class="td-ops">Cobot Operations</th>
+          <th class="td-act">Edit</th>
+        </tr>
+      </thead>
+      <tbody id="steps-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Execute panel ────────────────────────────────────────────────────── -->
+<div id="exec-panel" class="panel">
+  <div class="toolbar" style="margin-bottom:10px;">
+    <span style="font-weight:bold; font-size:0.95rem;">Execute Procedure</span>
+    <div class="spacer"></div>
+    <span id="exec-progress" style="font-size:0.82rem; color:#666;"></span>
+    <button onclick="exitExecMode()">&#10005; Exit</button>
+  </div>
+  <div id="exec-card-wrap"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end; gap:10px;">
+    <button id="btn-exec-prev" onclick="execPrev()">&#8592; Previous</button>
+    <button class="primary" id="btn-exec-next" onclick="execNext()">Next &#8594;</button>
+  </div>
+</div>
+
+<!-- ── Assign Modal ──────────────────────────────────────────────────────── -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&#10005;</button>
+    <h2 id="modal-title" style="margin-bottom:6px;">Assign Cobot Operations</h2>
+    <div id="modal-desc" style="font-size:0.82rem; color:#666; margin-bottom:16px;"></div>
+
+    <h3>Assigned Operations</h3>
+    <div id="modal-op-list" style="margin-bottom:14px;"></div>
+
+    <hr class="sep">
+    <h3>Add Operation</h3>
+    <div class="row" style="margin-bottom:8px;">
+      <div class="col" style="flex:1;">
+        <label>Function</label>
+        <select id="func-select" onchange="onFuncChange()" style="width:100%;">
+          <option value="">— select —</option>
+        </select>
+      </div>
+    </div>
+    <div id="func-desc" style="font-size:0.78rem; color:#888; margin-bottom:8px;"></div>
+    <div id="param-inputs" style="margin-bottom:12px;"></div>
+    <button class="primary" onclick="addOp()" id="add-op-btn" disabled>+ Add</button>
+
+    <hr class="sep">
+    <div style="text-align:right;">
+      <button class="primary" onclick="closeModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let currentFile = null;       // loaded external DSL filename
+let steps = [];               // [{step_number, description, involved_components, cobot_operations}]
+let stepOps = {};             // {stepNum: [{func, params, display}]}
+let opReg = {};               // operation registry from server
+let editStep = null;          // step number being edited in modal
+let execIdx = 0;              // 0-based index in execute mode
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+(async () => {
+  await loadOpRegistry();
+  await loadDslList();
+})();
+
+async function loadOpRegistry() {
+  try {
+    const r = await fetch('/dsl-cobot/op-registry');
+    opReg = await r.json();
+    const sel = document.getElementById('func-select');
+    for (const [name] of Object.entries(opReg)) {
+      const o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      sel.appendChild(o);
+    }
+  } catch(e) { console.error('registry load failed', e); }
+}
+
+async function loadDslList() {
+  try {
+    const r = await fetch('/dsl-cobot/list-dsl');
+    const d = await r.json();
+    const sel = document.getElementById('dsl-select');
+    for (const f of (d.internal || [])) {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      sel.appendChild(o);
+    }
+  } catch(e) { console.error('dsl list load failed', e); }
+}
+
+// ── Load DSL ──────────────────────────────────────────────────────────────
+async function loadDsl() {
+  const filename = document.getElementById('dsl-select').value;
+  if (!filename) { showMsg('Select a DSL file first', 'err'); return; }
+  try {
+    const r = await fetch('/dsl-cobot/load-dsl', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename })
+    });
+    if (!r.ok) { showMsg((await r.json()).error || 'Load failed', 'err'); return; }
+    const data = await r.json();
+    currentFile = filename;
+    steps = data.steps || [];
+
+    // Initialise stepOps from whatever is already in the DSL
+    stepOps = {};
+    for (const s of steps) {
+      stepOps[s.step_number] = (s.cobot_operations || [])
+        .map(parseOpString).filter(Boolean);
+    }
+
+    document.getElementById('load-info').textContent =
+      `${data.project_name} — ${steps.length} step${steps.length !== 1 ? 's' : ''} loaded`;
+    document.getElementById('steps-title').textContent =
+      `${data.project_name} (${steps.length} steps)`;
+
+    renderTable();
+    document.getElementById('steps-section').style.display = '';
+    document.getElementById('exec-panel').style.display = 'none';
+    showMsg('', '');
+  } catch(e) { showMsg('Error: ' + e.message, 'err'); }
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('steps-tbody');
+  tbody.innerHTML = '';
+  for (const s of steps) {
+    const tr = document.createElement('tr');
+    tr.id = 'row-' + s.step_number;
+    tr.innerHTML = `
+      <td class="td-num">${s.step_number}</td>
+      <td class="td-desc">${esc(s.description)}</td>
+      <td class="td-comp">${esc((s.involved_components || []).join(', '))}</td>
+      <td class="td-ops" id="ops-cell-${s.step_number}">${opsHtml(s.step_number)}</td>
+      <td class="td-act"><button class="sm" onclick="openModal(${s.step_number})">Assign</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function opsHtml(stepNum) {
+  const ops = stepOps[stepNum] || [];
+  if (!ops.length) return '<span class="badge human">Utente</span>';
+  const tags = ops.map(op =>
+    `<span class="op-tag" title="${esc(op.display)}">${esc(op.func)}(…)</span>`
+  ).join('');
+  return `<span class="badge cobot">${ops.length} op${ops.length > 1 ? 's' : ''}</span> ${tags}`;
+}
+
+function refreshOpsCell(stepNum) {
+  const cell = document.getElementById('ops-cell-' + stepNum);
+  if (cell) cell.innerHTML = opsHtml(stepNum);
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────
+async function saveOps() {
+  if (!currentFile) { showMsg('No DSL loaded', 'err'); return; }
+  const ops = {};
+  for (const [num, list] of Object.entries(stepOps)) {
+    ops[num] = list.map(op => op.display);
+  }
+  // Also write empty arrays for steps with no ops (removes old stale entries)
+  for (const s of steps) {
+    if (!(s.step_number in ops)) ops[s.step_number] = [];
+  }
+  try {
+    const r = await fetch('/dsl-cobot/save-cobot-ops', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename: currentFile, ops })
+    });
+    const d = await r.json();
+    if (!r.ok) { showMsg(d.error || 'Save failed', 'err'); return; }
+    showMsg(`Saved — internal DSL updated, external DSL regenerated`, 'ok');
+  } catch(e) { showMsg('Save error: ' + e.message, 'err'); }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────
+function openModal(stepNum) {
+  editStep = stepNum;
+  const s = steps.find(x => x.step_number === stepNum);
+  document.getElementById('modal-title').textContent = `Step ${stepNum} — Cobot Operations`;
+  document.getElementById('modal-desc').textContent = s ? s.description : '';
+  renderModalList();
+  document.getElementById('func-select').value = '';
+  document.getElementById('func-desc').textContent = '';
+  document.getElementById('param-inputs').innerHTML = '';
+  document.getElementById('add-op-btn').disabled = true;
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('open');
+  if (editStep !== null) refreshOpsCell(editStep);
+  editStep = null;
+}
+
+function renderModalList() {
+  const ops = stepOps[editStep] || [];
+  const el = document.getElementById('modal-op-list');
+  if (!ops.length) {
+    el.innerHTML = '<div style="font-size:0.82rem;color:#aaa;font-style:italic;">No operations — step will be performed by human operator.</div>';
+    return;
+  }
+  el.innerHTML = ops.map((op, i) => `
+    <div class="op-item">
+      <span class="op-item-str">${esc(op.display)}</span>
+      <button class="sm danger" onclick="removeOp(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function removeOp(idx) {
+  if (!stepOps[editStep]) return;
+  stepOps[editStep].splice(idx, 1);
+  renderModalList();
+}
+
+function onFuncChange() {
+  const func = document.getElementById('func-select').value;
+  document.getElementById('add-op-btn').disabled = !func;
+  if (!func) {
+    document.getElementById('func-desc').textContent = '';
+    document.getElementById('param-inputs').innerHTML = '';
+    return;
+  }
+  const meta = opReg[func];
+  document.getElementById('func-desc').textContent = meta.description || '';
+  renderParamInputs(meta.params || {});
+}
+
+function renderParamInputs(params) {
+  const c = document.getElementById('param-inputs');
+  const entries = Object.entries(params);
+  if (!entries.length) {
+    c.innerHTML = '<div style="font-size:0.78rem;color:#aaa;">No parameters required.</div>';
+    return;
+  }
+  c.innerHTML = entries.map(([key, meta]) => {
+    const isArr = meta.type && meta.type.startsWith('array');
+    const len = meta.type === 'array7' ? 7 : meta.type === 'array6' ? 6 : null;
+    const placeholder = isArr
+      ? (len ? Array(len).fill('0').join(', ') : '0, 0, 0')
+      : (meta.default !== undefined ? String(meta.default) : '');
+    const req = meta.required ? ' <span style="color:#c00">*</span>' : '';
+    const hint = meta.description + (len ? ` (${len} values, comma-separated)` : '');
+    return `
+      <div class="param-block">
+        <label>${key}${req}</label>
+        <input type="text" id="pi-${key}" placeholder="${placeholder}" style="width:100%;">
+        <div class="param-hint">${esc(hint)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function addOp() {
+  const func = document.getElementById('func-select').value;
+  if (!func || editStep === null) return;
+  const meta = opReg[func];
+  const params = {};
+
+  for (const [key, pmeta] of Object.entries(meta.params || {})) {
+    const inp = document.getElementById('pi-' + key);
+    if (!inp) continue;
+    const v = inp.value.trim();
+    if (!v) {
+      if (pmeta.required) { showMsg(`Parameter "${key}" is required`, 'err'); return; }
+      if (pmeta.default !== undefined) params[key] = pmeta.default;
+      continue;
+    }
+    if (pmeta.type && pmeta.type.startsWith('array')) {
+      try { params[key] = JSON.parse('[' + v + ']'); }
+      catch { showMsg(`Invalid array for "${key}": use comma-separated numbers`, 'err'); return; }
+    } else {
+      const n = parseFloat(v);
+      params[key] = isNaN(n) ? v : n;
+    }
+  }
+
+  const display = fmtOpStr(func, params);
+  if (!stepOps[editStep]) stepOps[editStep] = [];
+  stepOps[editStep].push({func, params, display});
+  renderModalList();
+  showMsg('', '');
+  // Reset add form
+  document.getElementById('func-select').value = '';
+  onFuncChange();
+}
+
+// ── Execute Mode ──────────────────────────────────────────────────────────
+function enterExecMode() {
+  if (!steps.length) return;
+  execIdx = 0;
+  document.getElementById('steps-section').style.display = 'none';
+  document.getElementById('exec-panel').style.display = '';
+  renderExecStep();
+}
+
+function exitExecMode() {
+  document.getElementById('exec-panel').style.display = 'none';
+  document.getElementById('steps-section').style.display = '';
+}
+
+function execNext() {
+  if (execIdx < steps.length - 1) { execIdx++; renderExecStep(); }
+  else { showMsg('Procedura completata!', 'ok'); exitExecMode(); }
+}
+
+function execPrev() {
+  if (execIdx > 0) { execIdx--; renderExecStep(); }
+}
+
+function renderExecStep() {
+  const step = steps[execIdx];
+  const ops = stepOps[step.step_number] || [];
+  const total = steps.length;
+
+  document.getElementById('exec-progress').textContent =
+    `Step ${execIdx + 1} / ${total}`;
+  document.getElementById('btn-exec-prev').disabled = execIdx === 0;
+  document.getElementById('btn-exec-next').textContent =
+    execIdx === total - 1 ? 'Finish ✓' : 'Next →';
+
+  let html = `
+    <div class="exec-card">
+      <div class="exec-meta">Step ${step.step_number} of ${total}</div>
+      <div class="exec-desc">${esc(step.description)}</div>
+      <div class="exec-components">Components: ${esc((step.involved_components || []).join(', '))}</div>
+  `;
+
+  if (!ops.length) {
+    html += `
+      <div class="human-notice">
+        👤 <strong>Operazione riservata all'operatore umano.</strong><br>
+        Completa manualmente questo step, poi premi <em>Next</em> per continuare.
+      </div>
+    `;
+  } else {
+    html += `<div style="margin-bottom:12px;">`;
+    ops.forEach((op, i) => {
+      html += `
+        <div class="exec-op-row">
+          <span class="op-status" id="es-${i}">○</span>
+          <span class="exec-op-str">${esc(op.display)}</span>
+          <button class="sm primary" id="eb-${i}"
+                  onclick="execOneOp(${step.step_number},${i})">Execute</button>
+        </div>
+      `;
+    });
+    html += `</div>
+      <button class="success" onclick="execAllOps(${step.step_number})">▶ Execute All</button>
+    `;
+  }
+
+  html += `</div>`;
+  document.getElementById('exec-card-wrap').innerHTML = html;
+}
+
+async function execOneOp(stepNum, opIdx) {
+  const op = (stepOps[stepNum] || [])[opIdx];
+  if (!op) return;
+  const btn = document.getElementById('eb-' + opIdx);
+  const status = document.getElementById('es-' + opIdx);
+  btn.disabled = true;
+  status.textContent = '⏳';
+  try {
+    const r = await fetch('/dsl-cobot/execute-op', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({func: op.func, params: op.params})
+    });
+    const d = await r.json();
+    if (r.ok) {
+      status.textContent = '✓'; status.style.color = '#2a9d2a';
+    } else {
+      status.textContent = '✗'; status.style.color = '#c00';
+      showMsg(d.error || 'Execution failed', 'err');
+      btn.disabled = false;
+    }
+  } catch(e) {
+    status.textContent = '✗'; status.style.color = '#c00';
+    showMsg(e.message, 'err'); btn.disabled = false;
+  }
+}
+
+async function execAllOps(stepNum) {
+  const ops = stepOps[stepNum] || [];
+  for (let i = 0; i < ops.length; i++) await execOneOp(stepNum, i);
+}
+
+// ── Op string helpers ──────────────────────────────────────────────────────
+function parseOpString(s) {
+  // 'func(key=val, key2=[...])' → {func, params, display}
+  const m = String(s).match(/^(\w+)\(([\s\S]*)\)$/);
+  if (!m) return null;
+  const func = m[1];
+  const paramsStr = m[2].trim();
+  const params = {};
+  if (paramsStr) {
+    for (const part of splitOnComma(paramsStr)) {
+      const eq = part.indexOf('=');
+      if (eq < 0) continue;
+      const key = part.slice(0, eq).trim();
+      const val = part.slice(eq + 1).trim();
+      try { params[key] = JSON.parse(val); } catch { params[key] = val; }
+    }
+  }
+  return {func, params, display: s};
+}
+
+function fmtOpStr(func, params) {
+  if (!params || !Object.keys(params).length) return `${func}()`;
+  const parts = Object.entries(params).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+  return `${func}(${parts.join(', ')})`;
+}
+
+function splitOnComma(str) {
+  // Split on commas not inside brackets
+  const parts = []; let depth = 0, cur = '';
+  for (const c of str) {
+    if ('([{'.includes(c)) { depth++; cur += c; }
+    else if (')]}'.includes(c)) { depth--; cur += c; }
+    else if (c === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; }
+    else cur += c;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  if (!text) { el.style.display = 'none'; return; }
+  el.className = type; el.textContent = text; el.style.display = 'block';
+}
+
+
+</script>
+</body>
+</html>

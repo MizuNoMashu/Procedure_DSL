@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -0 ls -lh)",
+      "Bash(wc -l /Users/matteom/Desktop/dottorato/Thales/Procedure_DSL/ui_dsl/src/templates/*.html)",
+      "Bash(python3 -c \":*)"
+    ]
+  }
+}

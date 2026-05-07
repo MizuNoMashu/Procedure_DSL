@@ -45,7 +45,9 @@ def print_startup_banner():
 
 
 from blueprints.api_ui import api_ui_bp
+from blueprints.cobot_dsl_bp import cobot_dsl_bp
 app.register_blueprint(api_ui_bp)
+app.register_blueprint(cobot_dsl_bp)
 
 
 @app.route('/')

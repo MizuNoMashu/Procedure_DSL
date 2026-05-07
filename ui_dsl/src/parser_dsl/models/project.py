@@ -141,6 +141,11 @@ class Project:
                     extracted_step_infos_text += f","
             extracted_step_infos_text +="\n"
 
+            tool_type = step_object.tool.changed_name if step_object.tool.name else "null"
+            extracted_step_infos_text += f"\t\t\tAction: {step_object.action}\n"
+            extracted_step_infos_text += f"\t\t\tOn: {json.dumps(step_object.applied_to)}\n"
+            extracted_step_infos_text += f"\t\t\tTool Type: {tool_type}\n"
+
         return extracted_step_infos_text
 
     def __str__(self):
