@@ -44,13 +44,13 @@ def extract_csv():
             resp = _requests.post(
                 f'{_LLM_URL}/extract-csv',
                 files={'file': (f.filename, f.stream, f.content_type)},
-                timeout=600,
+                timeout=3600,
             )
         else:
             resp = _requests.post(
                 f'{_LLM_URL}/extract-csv',
                 json=request.get_json(silent=True) or {},
-                timeout=600,
+                timeout=3600,
             )
     except _requests.exceptions.ConnectionError:
         return jsonify({"error": f"LLM service unreachable at {_LLM_URL}"}), 503
