@@ -183,3 +183,6 @@ def cobot_proxy(path):
         return jsonify({"error": f"Cobot service unreachable at {_COBOT_URL}"}), 503
     except _requests.exceptions.Timeout:
         return jsonify({"error": "Cobot service timed out"}), 504
+    except Exception as e:
+        print(f"[PROXY ERROR] {request.method} /{path}: {type(e).__name__}: {e}")
+        return jsonify({"error": f"Proxy error: {str(e)}"}), 502
