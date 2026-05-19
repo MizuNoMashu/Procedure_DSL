@@ -74,12 +74,14 @@ def run_pipeline(file_path: str, llm, config: dict) -> Tuple[List[AssemblyStep],
         refined_raw = refine_steps(invalid, llm, max_tokens)
         refined_valid, still_invalid = validate_steps(refined_raw, min_confidence=min_confidence)
         valid.extend(refined_valid)
-        valid = dedup_steps(valid)
+        # valid = dedup_steps(valid)
+        valid = valid
         num_refined = len(refined_valid)
         invalid = still_invalid  # remaining invalid: keep for human review
 
     # 8. Merge all steps; sort by document position; assign step indices
-    all_steps = dedup_steps(valid + invalid)
+    # all_steps = dedup_steps(valid + invalid)
+    all_steps = valid + invalid
     all_steps.sort(key=lambda s: s.source_chunk_index)
     for i, step in enumerate(all_steps, 1):
         step.step_index = i

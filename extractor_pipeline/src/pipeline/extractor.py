@@ -95,7 +95,7 @@ Never infer, guess, or add information not present in the source text.
   return one JSON object per part type.
 - component_detail: technical specs (dimensions, material, part number, type, quantity) if explicitly stated, else "".
   Format: "Key = Value; Key = Value;" (e.g. "Head = Hexagonal; Diameter = 3mm; Length = 11mm;").
-  If multiple identical parts are mentioned (e.g. "4 M3 screws"), add "Quantity = x4;" and use the singular name in component.
+  If multiple identical parts are mentioned (e.g. "4x 2.5x6mm Bolt"), create one step object per unit — return 4 separate objects each with component = "Bolt" and component_detail containing only the specs (e.g. "Diameter = 2.5mm; Length = 6mm;"). Do NOT repeat the component name in component_detail.
   If NOT stated → ""
 - orientation: ONLY if the text EXPLICITLY describes a positional or spatial
   relationship for this step (e.g. "Rail 2 = Board", "Ensure proper orientation!").

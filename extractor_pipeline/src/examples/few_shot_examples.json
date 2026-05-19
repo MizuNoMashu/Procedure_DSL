@@ -80,12 +80,84 @@
           "confidence": 1.0
         }
       ]
+    },
+    {
+      "input_text": "Attach the top mounting bracket to the top plate.\n• 1x Top Plate\n• 4x 2.5 x 6 mm Bolts\n• 1x Top Mounting Bracket",
+      "output": [
+        {
+          "action": "Place",
+          "component": "Top Plate",
+          "component_detail": "",
+          "orientation": "",
+          "applied_to": "",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 0.9
+        },
+        {
+          "action": "Place",
+          "component": "Top Mounting Bracket",
+          "component_detail": "",
+          "orientation": "",
+          "applied_to": "Top Plate;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 0.9
+        },
+        {
+          "action": "Screw in",
+          "component": "Bolt",
+          "component_detail": "Diameter = 2.5mm; Length = 6mm;",
+          "orientation": "",
+          "applied_to": "Top Mounting Bracket;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 0.9
+        },
+        {
+          "action": "Screw in",
+          "component": "Bolt",
+          "component_detail": "Diameter = 2.5mm; Length = 6mm;",
+          "orientation": "",
+          "applied_to": "Top Mounting Bracket;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 0.9
+        },
+        {
+          "action": "Screw in",
+          "component": "Bolt",
+          "component_detail": "Diameter = 2.5mm; Length = 6mm;",
+          "orientation": "",
+          "applied_to": "Top Mounting Bracket;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 0.9
+        },
+        {
+          "action": "Screw in",
+          "component": "Bolt",
+          "component_detail": "Diameter = 2.5mm; Length = 6mm;",
+          "orientation": "",
+          "applied_to": "Top Mounting Bracket;",
+          "tool": "",
+          "tool_detail": "",
+          "assembly_detail": "",
+          "confidence": 0.9
+        }
+      ]
     }
   ],
   "notes": [
     "Allowed actions: Place, Insert, Screw in, Connect, Solder, Apply, Remove",
     "component must be a SINGLE part name — return one object per part type",
-    "component_detail uses semicolon-separated key=value pairs; quantity as 'x4'",
+    "If Nx identical parts appear, return N separate step objects — do NOT use a quantity field",
+    "component_detail uses semicolon-separated key=value pairs for specs only (no component name, no quantity)",
     "applied_to uses semicolon separation for multiple targets",
     "Empty fields are represented as empty strings, not null or omitted",
     "assembly_detail contains extra instructions when present in source text"

@@ -7,7 +7,7 @@ llm:
 chunking:
   size: 3000 #2000
   overlap: 300 #200
-  batch_max_chars: 6000  #4000 # combine adjacent chunks up to this char count per LLM call
+  batch_max_chars: 3000  # combine adjacent chunks up to this char count per LLM call
 
 extraction:
   min_confidence: 0.4   # steps below this are flagged invalid

@@ -26,8 +26,8 @@ def validate_steps(
             invalid.append(step)
         else:
             valid.append(step)
-
-    return dedup_steps(valid), invalid
+    return valid, invalid
+    # return dedup_steps(valid), invalid
 
 
 def dedup_steps(steps: List[AssemblyStep]) -> List[AssemblyStep]:
