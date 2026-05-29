@@ -222,3 +222,6 @@ ui_dsl/src/output/*
 
 cobot/*
 cobot
+
+.claude/*
+.claude
