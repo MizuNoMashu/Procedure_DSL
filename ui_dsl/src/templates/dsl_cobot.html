@@ -57,28 +57,27 @@
     td { padding: 7px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
     tr:hover td { background: #fafafa; }
     .td-num { font-weight: bold; color: #666; width: 34px; }
-    .td-desc { max-width: 280px; font-size: 0.83rem; }
-    .td-comp { font-size: 0.77rem; color: #777; max-width: 160px; }
-    .td-ops { max-width: 240px; }
+    .td-desc { max-width: 240px; font-size: 0.83rem; }
+    .td-comp { font-size: 0.77rem; color: #777; max-width: 140px; }
+    .td-tool { font-size: 0.77rem; max-width: 140px; }
+    .td-tool-name { color: #555; font-weight: bold; }
+    .td-tool-detail { color: #999; font-size: 0.72rem; margin-top: 1px; }
+    .td-ops { max-width: 200px; }
     .td-act { width: 70px; }
     .op-tag { display: inline-block; background: #e8f4fd; border: 1px solid #90c6e8;
               border-radius: 3px; padding: 1px 5px; font-size: 0.7rem; color: #1a5a8a;
               margin: 1px 2px 1px 0; word-break: break-all; max-width: 220px;
               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 
-    /* Execute panel */
-    #exec-panel { display: none; }
-    .exec-card { border: 2px solid #ddd; border-radius: 8px; padding: 20px; background: #fff; }
-    .exec-meta { font-size: 0.78rem; color: #888; margin-bottom: 8px; }
-    .exec-desc { font-size: 1rem; font-weight: bold; margin-bottom: 14px; }
-    .exec-components { font-size: 0.78rem; color: #666; margin-bottom: 14px; }
-    .human-notice { background: #fffbea; border: 1px solid #e8d96a; border-radius: 4px;
-                    padding: 12px 16px; font-size: 0.88rem; }
-    .exec-op-row { display: flex; align-items: center; gap: 8px; padding: 6px 0;
-                   border-bottom: 1px solid #f0f0f0; font-size: 0.83rem; }
-    .exec-op-row:last-child { border-bottom: none; }
-    .exec-op-str { flex: 1; word-break: break-all; }
-    .op-status { min-width: 18px; text-align: center; }
+    /* Toolbar */
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .spacer { flex: 1; }
+
+    /* Msg */
+    #msg { font-size: 0.82rem; padding: 7px 12px; border-radius: 4px;
+           margin-bottom: 12px; display: none; }
+    #msg.ok  { background: #e8f4ec; border: 1px solid #8bc89a; color: #1a6630; }
+    #msg.err { background: #fdecea; border: 1px solid #e8a0a0; color: #c00; }
 
     /* Modal */
     .overlay { display: none; position: fixed; inset: 0;
@@ -99,16 +98,134 @@
     .param-block label { display: block; margin-bottom: 3px; }
     .param-hint { font-size: 0.71rem; color: #999; margin-top: 2px; }
 
-    /* Toolbar */
-    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-    .spacer { flex: 1; }
+    /* ── Execute overlay (full-screen) ── */
+    #exec-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 200;
+      background: #fff;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #exec-overlay.open { display: flex; }
 
-    /* Msg */
-    #msg { font-size: 0.82rem; padding: 7px 12px; border-radius: 4px;
-           margin-bottom: 12px; display: none; }
-    #msg.ok  { background: #e8f4ec; border: 1px solid #8bc89a; color: #1a6630; }
-    #msg.err { background: #fdecea; border: 1px solid #e8a0a0; color: #c00; }
+    /* Exec header */
+    #exec-hdr {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 20px;
+      border-bottom: 2px solid #333;
+      background: #f4f4f4;
+      flex-shrink: 0;
+    }
+    #exec-hdr-title { font-weight: bold; font-size: 1rem; }
+    #exec-hdr-progress {
+      font-size: 0.82rem; color: #666;
+      background: #eee; border: 1px solid #ddd;
+      border-radius: 10px; padding: 2px 10px;
+    }
 
+    /* Exec body */
+    #exec-body { display: flex; flex: 1; overflow: hidden; }
+
+    /* Step list sidebar */
+    #exec-steplist {
+      width: 230px; flex-shrink: 0;
+      border-right: 1px solid #ddd;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+    #exec-steplist-hdr {
+      padding: 9px 14px;
+      font-size: 0.75rem; font-weight: bold; color: #888;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      border-bottom: 1px solid #eee;
+      background: #f0f0f0;
+      position: sticky; top: 0; z-index: 1;
+    }
+    .esli {
+      padding: 9px 12px; cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .esli:hover { background: #f0f0f0; }
+    .esli.active { background: #e8f4fd; border-left: 3px solid #1a5a8a; }
+    .esli-top { display: flex; align-items: center; gap: 6px; }
+    .esli-num {
+      font-size: 0.72rem; font-weight: bold; color: #888;
+      min-width: 22px;
+    }
+    .esli-desc {
+      font-size: 0.78rem; color: #333;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1;
+    }
+    .esli.active .esli-desc { color: #1a3a6a; }
+
+    /* Exec main area */
+    #exec-main {
+      flex: 1; overflow-y: auto;
+      padding: 24px 28px 40px;
+    }
+
+    /* Step card */
+    .exec-card {
+      border: 2px solid #ddd; border-radius: 10px;
+      padding: 24px 28px; background: #fff;
+      max-width: 760px;
+    }
+    .exec-step-meta { font-size: 0.75rem; color: #999; margin-bottom: 6px; }
+    .exec-step-desc { font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; line-height: 1.4; }
+    .exec-step-comp { font-size: 0.8rem; color: #666; margin-bottom: 8px; }
+    .exec-step-tool {
+      font-size: 0.82rem; margin-bottom: 18px;
+      background: #fffbf0; border: 1px solid #e8d96a;
+      border-radius: 4px; padding: 5px 10px;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+
+    .human-notice {
+      background: #fffbea; border: 1px solid #e8d96a; border-radius: 6px;
+      padding: 14px 18px; font-size: 0.9rem;
+    }
+
+    /* Ops list */
+    .exec-ops-wrap { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .exec-op-item {
+      border: 1px solid #e0e0e0; border-radius: 6px;
+      overflow: hidden;
+    }
+    .exec-op-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; font-size: 0.83rem;
+      background: #fafafa;
+    }
+    .exec-op-row:hover { background: #f4f4f4; }
+    .op-status { min-width: 20px; text-align: center; font-size: 1rem; }
+    .exec-op-str { flex: 1; word-break: break-all; font-size: 0.8rem; }
+
+    /* Inline edit form */
+    .exec-op-edit {
+      padding: 12px 14px;
+      border-top: 1px solid #e8e8e8;
+      background: #f9f9ff;
+    }
+    .exec-op-edit .param-block { margin-bottom: 8px; }
+    .exec-op-edit label { font-size: 0.75rem; color: #555; display: block; margin-bottom: 3px; }
+    .exec-op-edit input { width: 100%; font-size: 0.82rem; }
+    .exec-op-edit .param-hint { font-size: 0.69rem; color: #aaa; margin-top: 2px; }
+    .exec-edit-actions { display: flex; gap: 6px; margin-top: 10px; }
+
+    /* Exec nav */
+    #exec-nav {
+      display: flex; gap: 10px; justify-content: space-between;
+      margin-top: 20px; max-width: 760px;
+    }
+    #exec-nav-right { display: flex; gap: 8px; }
+
+    /* Jump selector */
+    #exec-jump-wrap {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 20px; font-size: 0.82rem; max-width: 760px;
+    }
   </style>
 </head>
 <body>
@@ -154,6 +271,7 @@
           <th class="td-num">#</th>
           <th class="td-desc">Description</th>
           <th class="td-comp">Components</th>
+          <th class="td-tool">Tool</th>
           <th class="td-ops">Cobot Operations</th>
           <th class="td-act">Edit</th>
         </tr>
@@ -163,18 +281,47 @@
   </div>
 </div>
 
-<!-- ── Execute panel ────────────────────────────────────────────────────── -->
-<div id="exec-panel" class="panel">
-  <div class="toolbar" style="margin-bottom:10px;">
-    <span style="font-weight:bold; font-size:0.95rem;">Execute Procedure</span>
+<!-- ── Execute overlay (full-screen) ──────────────────────────────────── -->
+<div id="exec-overlay">
+  <!-- Header -->
+  <div id="exec-hdr">
+    <button onclick="exitExecMode()">&#8592; Back</button>
+    <span id="exec-hdr-title">Procedure</span>
     <div class="spacer"></div>
-    <span id="exec-progress" style="font-size:0.82rem; color:#666;"></span>
-    <button onclick="exitExecMode()">&#10005; Exit</button>
+    <span id="exec-hdr-progress" class="badge cobot" style="font-size:0.82rem; padding:3px 12px;"></span>
   </div>
-  <div id="exec-card-wrap"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end; gap:10px;">
-    <button id="btn-exec-prev" onclick="execPrev()">&#8592; Previous</button>
-    <button class="primary" id="btn-exec-next" onclick="execNext()">Next &#8594;</button>
+
+  <!-- Body -->
+  <div id="exec-body">
+
+    <!-- Step list sidebar -->
+    <div id="exec-steplist">
+      <div id="exec-steplist-hdr">Steps</div>
+      <div id="exec-steplist-items"></div>
+    </div>
+
+    <!-- Current step -->
+    <div id="exec-main">
+
+      <!-- Jump to step -->
+      <div id="exec-jump-wrap">
+        <label style="color:#888; font-size:0.78rem;">Jump to:</label>
+        <select id="exec-jump-select" onchange="jumpToStep(parseInt(this.value))">
+        </select>
+        <span id="exec-msg" style="font-size:0.78rem; color:#2a6630; display:none;"></span>
+      </div>
+
+      <!-- Step card -->
+      <div id="exec-card-wrap"></div>
+
+      <!-- Navigation -->
+      <div id="exec-nav">
+        <button id="btn-exec-prev" onclick="execPrev()">&#8592; Previous</button>
+        <div id="exec-nav-right">
+          <button class="primary" id="btn-exec-next" onclick="execNext()">Next &#8594;</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -211,12 +358,13 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-let currentFile = null;       // loaded external DSL filename
-let steps = [];               // [{step_number, description, involved_components, cobot_operations}]
-let stepOps = {};             // {stepNum: [{func, params, display}]}
-let opReg = {};               // operation registry from server
-let editStep = null;          // step number being edited in modal
-let execIdx = 0;              // 0-based index in execute mode
+let currentFile = null;
+let steps = [];
+let stepOps = {};
+let opReg = {};
+let editStep = null;
+let execIdx = 0;
+let execEditingOp = null; // {stepNum, opIdx} currently showing inline edit form
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 (async () => {
@@ -264,7 +412,6 @@ async function loadDsl() {
     currentFile = filename;
     steps = data.steps || [];
 
-    // Initialise stepOps from whatever is already in the DSL
     stepOps = {};
     for (const s of steps) {
       stepOps[s.step_number] = (s.cobot_operations || [])
@@ -278,7 +425,6 @@ async function loadDsl() {
 
     renderTable();
     document.getElementById('steps-section').style.display = '';
-    document.getElementById('exec-panel').style.display = 'none';
     showMsg('', '');
   } catch(e) { showMsg('Error: ' + e.message, 'err'); }
 }
@@ -294,11 +440,33 @@ function renderTable() {
       <td class="td-num">${s.step_number}</td>
       <td class="td-desc">${esc(s.description)}</td>
       <td class="td-comp">${esc((s.involved_components || []).join(', '))}</td>
+      <td class="td-tool">${toolHtml(s)}</td>
       <td class="td-ops" id="ops-cell-${s.step_number}">${opsHtml(s.step_number)}</td>
       <td class="td-act"><button class="sm" onclick="openModal(${s.step_number})">Assign</button></td>
     `;
     tbody.appendChild(tr);
   }
+}
+
+function toolHtml(step) {
+  if (!step.tool_type && !step.tool_name) return '<span style="color:#ccc">—</span>';
+  const name = step.tool_name || step.tool_type || '';
+  const detail = step.tool_detail || {};
+  const detailStr = Object.entries(detail).map(([k, v]) => `${k}: ${v}`).join(', ');
+  return `<div class="td-tool-name">${esc(name)}</div>` +
+         (detailStr ? `<div class="td-tool-detail">${esc(detailStr)}</div>` : '');
+}
+
+function toolCardHtml(step) {
+  if (!step.tool_type && !step.tool_name) return '';
+  const name = step.tool_name || step.tool_type || '';
+  const detail = step.tool_detail || {};
+  const detailStr = Object.entries(detail).map(([k, v]) => `${k}: ${v}`).join(' · ');
+  return `<div class="exec-step-tool">` +
+    `<span style="font-size:0.72rem;color:#888;text-transform:uppercase;letter-spacing:0.04em;">Tool</span> ` +
+    `<strong>${esc(name)}</strong>` +
+    (detailStr ? ` <span style="color:#999;font-size:0.78rem;">(${esc(detailStr)})</span>` : '') +
+    `</div>`;
 }
 
 function opsHtml(stepNum) {
@@ -322,7 +490,6 @@ async function saveOps() {
   for (const [num, list] of Object.entries(stepOps)) {
     ops[num] = list.map(op => op.display);
   }
-  // Also write empty arrays for steps with no ops (removes old stale entries)
   for (const s of steps) {
     if (!(s.step_number in ops)) ops[s.step_number] = [];
   }
@@ -445,7 +612,6 @@ function addOp() {
   stepOps[editStep].push({func, params, display});
   renderModalList();
   showMsg('', '');
-  // Reset add form
   document.getElementById('func-select').value = '';
   onFuncChange();
 }
@@ -454,78 +620,233 @@ function addOp() {
 function enterExecMode() {
   if (!steps.length) return;
   execIdx = 0;
-  document.getElementById('steps-section').style.display = 'none';
-  document.getElementById('exec-panel').style.display = '';
+  execEditingOp = null;
+
+  // Populate jump selector
+  const sel = document.getElementById('exec-jump-select');
+  sel.innerHTML = '';
+  steps.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = `Step ${s.step_number}: ${s.description.slice(0, 50)}`;
+    sel.appendChild(o);
+  });
+
+  document.getElementById('exec-overlay').classList.add('open');
+  renderExecStepList();
   renderExecStep();
 }
 
 function exitExecMode() {
-  document.getElementById('exec-panel').style.display = 'none';
-  document.getElementById('steps-section').style.display = '';
+  document.getElementById('exec-overlay').classList.remove('open');
+  execEditingOp = null;
+}
+
+function jumpToStep(idx) {
+  if (idx < 0 || idx >= steps.length) return;
+  execIdx = idx;
+  execEditingOp = null;
+  document.getElementById('exec-jump-select').value = idx;
+  renderExecStepList();
+  renderExecStep();
 }
 
 function execNext() {
-  if (execIdx < steps.length - 1) { execIdx++; renderExecStep(); }
-  else { showMsg('Procedura completata!', 'ok'); exitExecMode(); }
+  if (execIdx < steps.length - 1) {
+    jumpToStep(execIdx + 1);
+  } else {
+    showExecMsg('Procedura completata!');
+    setTimeout(() => exitExecMode(), 1200);
+  }
 }
 
 function execPrev() {
-  if (execIdx > 0) { execIdx--; renderExecStep(); }
+  if (execIdx > 0) jumpToStep(execIdx - 1);
 }
 
+// ── Render step list sidebar ───────────────────────────────────────────────
+function renderExecStepList() {
+  const container = document.getElementById('exec-steplist-items');
+  container.innerHTML = '';
+  steps.forEach((s, i) => {
+    const ops = stepOps[s.step_number] || [];
+    const isActive = i === execIdx;
+    const hasOps = ops.length > 0;
+    const div = document.createElement('div');
+    div.className = 'esli' + (isActive ? ' active' : '');
+    div.onclick = () => jumpToStep(i);
+    div.innerHTML = `
+      <div class="esli-top">
+        <span class="esli-num">${s.step_number}</span>
+        <span class="badge ${hasOps ? 'cobot' : 'human'}" style="font-size:0.65rem; padding:1px 6px;">
+          ${hasOps ? ops.length + ' op' + (ops.length > 1 ? 's' : '') : 'Human'}
+        </span>
+      </div>
+      <div class="esli-desc">${esc(s.description)}</div>
+    `;
+    container.appendChild(div);
+    if (isActive) div.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+// ── Render current step card ───────────────────────────────────────────────
 function renderExecStep() {
   const step = steps[execIdx];
   const ops = stepOps[step.step_number] || [];
   const total = steps.length;
 
-  document.getElementById('exec-progress').textContent =
+  // Update header
+  const projName = currentFile ? currentFile.replace(/\.json$/, '') : 'Procedure';
+  document.getElementById('exec-hdr-title').textContent = projName;
+  document.getElementById('exec-hdr-progress').textContent =
     `Step ${execIdx + 1} / ${total}`;
+
+  // Update jump selector
+  document.getElementById('exec-jump-select').value = execIdx;
+
+  // Update nav buttons
   document.getElementById('btn-exec-prev').disabled = execIdx === 0;
-  document.getElementById('btn-exec-next').textContent =
-    execIdx === total - 1 ? 'Finish ✓' : 'Next →';
+  const nextBtn = document.getElementById('btn-exec-next');
+  nextBtn.textContent = execIdx === total - 1 ? 'Finish ✓' : 'Next →';
 
   let html = `
     <div class="exec-card">
-      <div class="exec-meta">Step ${step.step_number} of ${total}</div>
-      <div class="exec-desc">${esc(step.description)}</div>
-      <div class="exec-components">Components: ${esc((step.involved_components || []).join(', '))}</div>
+      <div class="exec-step-meta">Step ${step.step_number} of ${total}</div>
+      <div class="exec-step-desc">${esc(step.description)}</div>
+      <div class="exec-step-comp">Components: ${esc((step.involved_components || []).join(', '))}</div>
+      ${toolCardHtml(step)}
   `;
 
   if (!ops.length) {
     html += `
       <div class="human-notice">
-        👤 <strong>Operazione riservata all'operatore umano.</strong><br>
+        &#128100; <strong>Operazione riservata all'operatore umano.</strong><br>
         Completa manualmente questo step, poi premi <em>Next</em> per continuare.
       </div>
     `;
   } else {
-    html += `<div style="margin-bottom:12px;">`;
+    html += `<div class="exec-ops-wrap">`;
     ops.forEach((op, i) => {
+      const isEditing = execEditingOp &&
+        execEditingOp.stepNum === step.step_number &&
+        execEditingOp.opIdx === i;
+
       html += `
-        <div class="exec-op-row">
-          <span class="op-status" id="es-${i}">○</span>
-          <span class="exec-op-str">${esc(op.display)}</span>
-          <button class="sm primary" id="eb-${i}"
-                  onclick="execOneOp(${step.step_number},${i})">Execute</button>
-        </div>
+        <div class="exec-op-item">
+          <div class="exec-op-row">
+            <span class="op-status" id="es-${i}">&#9675;</span>
+            <span class="exec-op-str">${esc(op.display)}</span>
+            <button class="sm" onclick="toggleEditOp(${step.step_number}, ${i})">
+              ${isEditing ? 'Cancel' : 'Edit params'}
+            </button>
+            <button class="sm primary" id="eb-${i}"
+                    onclick="execOneOp(${step.step_number}, ${i})">Execute</button>
+          </div>
       `;
+
+      if (isEditing) {
+        const meta = opReg[op.func];
+        const paramEntries = Object.entries((meta && meta.params) || {});
+        html += `<div class="exec-op-edit">`;
+        if (!paramEntries.length) {
+          html += `<div style="font-size:0.78rem;color:#aaa;">No parameters for this function.</div>`;
+        } else {
+          paramEntries.forEach(([key, pmeta]) => {
+            const curVal = op.params[key];
+            const displayVal = curVal !== undefined
+              ? (Array.isArray(curVal) ? curVal.join(', ') : String(curVal))
+              : '';
+            const hint = pmeta.description || '';
+            html += `
+              <div class="param-block">
+                <label>${esc(key)}</label>
+                <input type="text" id="epi-${i}-${esc(key)}"
+                       value="${esc(displayVal)}" placeholder="${esc(hint)}">
+                <div class="param-hint">${esc(hint)}</div>
+              </div>
+            `;
+          });
+        }
+        html += `
+          <div class="exec-edit-actions">
+            <button class="sm primary" onclick="applyOpEdit(${step.step_number}, ${i})">Apply</button>
+            <button class="sm" onclick="toggleEditOp(${step.step_number}, ${i})">Cancel</button>
+          </div>
+        </div>`;
+      }
+
+      html += `</div>`; // exec-op-item
     });
-    html += `</div>
-      <button class="success" onclick="execAllOps(${step.step_number})">▶ Execute All</button>
+    html += `</div>`; // exec-ops-wrap
+
+    html += `
+      <div>
+        <button class="success" onclick="execAllOps(${step.step_number})">&#9654; Execute All</button>
+      </div>
     `;
   }
 
-  html += `</div>`;
+  html += `</div>`; // exec-card
   document.getElementById('exec-card-wrap').innerHTML = html;
 }
 
+// ── Inline param editing ───────────────────────────────────────────────────
+function toggleEditOp(stepNum, opIdx) {
+  if (execEditingOp &&
+      execEditingOp.stepNum === stepNum &&
+      execEditingOp.opIdx === opIdx) {
+    execEditingOp = null;
+  } else {
+    execEditingOp = { stepNum, opIdx };
+  }
+  renderExecStep();
+}
+
+function applyOpEdit(stepNum, opIdx) {
+  const op = (stepOps[stepNum] || [])[opIdx];
+  if (!op) return;
+  const meta = opReg[op.func];
+  const newParams = {};
+
+  for (const [key, pmeta] of Object.entries((meta && meta.params) || {})) {
+    const inp = document.getElementById(`epi-${opIdx}-${key}`);
+    if (!inp) continue;
+    const v = inp.value.trim();
+    if (!v) {
+      if (pmeta.default !== undefined) newParams[key] = pmeta.default;
+      continue;
+    }
+    if (pmeta.type && pmeta.type.startsWith('array')) {
+      try { newParams[key] = JSON.parse('[' + v + ']'); }
+      catch { showExecMsg('Invalid array for "' + key + '" — use comma-separated numbers'); return; }
+    } else {
+      const n = parseFloat(v);
+      newParams[key] = isNaN(n) ? v : n;
+    }
+  }
+
+  op.params = newParams;
+  op.display = fmtOpStr(op.func, newParams);
+  execEditingOp = null;
+  renderExecStep();
+  showExecMsg('Parameters updated');
+}
+
+function showExecMsg(text) {
+  const el = document.getElementById('exec-msg');
+  el.textContent = text;
+  el.style.display = '';
+  setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+
+// ── Execute ops ────────────────────────────────────────────────────────────
 async function execOneOp(stepNum, opIdx) {
   const op = (stepOps[stepNum] || [])[opIdx];
   if (!op) return;
   const btn = document.getElementById('eb-' + opIdx);
   const status = document.getElementById('es-' + opIdx);
-  btn.disabled = true;
-  status.textContent = '⏳';
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = '⏳';
   try {
     const r = await fetch('/dsl-cobot/execute-op', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -533,15 +854,16 @@ async function execOneOp(stepNum, opIdx) {
     });
     const d = await r.json();
     if (r.ok) {
-      status.textContent = '✓'; status.style.color = '#2a9d2a';
+      if (status) { status.textContent = '✓'; status.style.color = '#2a9d2a'; }
     } else {
-      status.textContent = '✗'; status.style.color = '#c00';
-      showMsg(d.error || 'Execution failed', 'err');
-      btn.disabled = false;
+      if (status) { status.textContent = '✗'; status.style.color = '#c00'; }
+      showExecMsg(d.error || 'Execution failed');
+      if (btn) btn.disabled = false;
     }
   } catch(e) {
-    status.textContent = '✗'; status.style.color = '#c00';
-    showMsg(e.message, 'err'); btn.disabled = false;
+    if (status) { status.textContent = '✗'; status.style.color = '#c00'; }
+    showExecMsg(e.message);
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -552,7 +874,6 @@ async function execAllOps(stepNum) {
 
 // ── Op string helpers ──────────────────────────────────────────────────────
 function parseOpString(s) {
-  // 'func(key=val, key2=[...])' → {func, params, display}
   const m = String(s).match(/^(\w+)\(([\s\S]*)\)$/);
   if (!m) return null;
   const func = m[1];
@@ -577,7 +898,6 @@ function fmtOpStr(func, params) {
 }
 
 function splitOnComma(str) {
-  // Split on commas not inside brackets
   const parts = []; let depth = 0, cur = '';
   for (const c of str) {
     if ('([{'.includes(c)) { depth++; cur += c; }
@@ -591,7 +911,8 @@ function splitOnComma(str) {
 
 function esc(s) {
   return String(s || '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function showMsg(text, type) {
@@ -599,8 +920,6 @@ function showMsg(text, type) {
   if (!text) { el.style.display = 'none'; return; }
   el.className = type; el.textContent = text; el.style.display = 'block';
 }
-
-
 </script>
 </body>
 </html>

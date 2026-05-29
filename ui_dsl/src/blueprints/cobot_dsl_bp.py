@@ -217,6 +217,8 @@ def load_dsl():
             "action":              s["action"],
             "on":                  s["on"],
             "tool_type":           s["tool_type"],
+            "tool_name":           s.get("tool_name"),
+            "tool_detail":         s.get("tool_detail") or {},
             "cobot_operations":    s["cobot_ops"],
         })
 

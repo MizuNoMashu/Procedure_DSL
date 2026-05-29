@@ -6,17 +6,53 @@
   <title>Cobot Control — Procedure DSL</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: monospace; max-width: 1100px; margin: 0 auto; padding: 0 24px 40px; color: #222; }
+    html, body { height: 100%; }
+    body { font-family: monospace; color: #222; display: flex; flex-direction: column; overflow: hidden; }
 
-    nav { display: flex; border-bottom: 2px solid #333; margin-bottom: 24px; padding-top: 16px; }
+    /* ── Nav ── */
+    nav { display: flex; border-bottom: 2px solid #333; padding: 0 24px; flex-shrink: 0; }
     nav a { text-decoration: none; color: #666; padding: 8px 18px; font-family: monospace; font-size: 0.9rem; }
     nav a.active { color: #222; font-weight: bold; border-bottom: 3px solid #333; margin-bottom: -2px; }
     nav a:hover:not(.active) { color: #333; background: #f5f5f5; }
 
-    h1 { font-size: 1.4rem; margin-bottom: 20px; }
-    h2 { font-size: 1rem; margin-bottom: 12px; }
-    h3 { font-size: 0.85rem; font-weight: bold; color: #444; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+    /* ── Page layout ── */
+    #layout { display: flex; flex: 1; overflow: hidden; }
+    #main-col { flex: 1; overflow-y: auto; padding: 20px 16px 40px 24px; min-width: 0; }
 
+    /* ── Log sidebar ── */
+    #log-sidebar {
+      width: 272px; flex-shrink: 0;
+      border-left: 1px solid #ddd;
+      background: #f8f8f8;
+      display: flex; flex-direction: column;
+    }
+    #log-sidebar-hdr {
+      padding: 9px 12px;
+      border-bottom: 1px solid #ddd;
+      background: #f0f0f0;
+      display: flex; align-items: center; gap: 6px;
+      flex-shrink: 0;
+      font-size: 0.83rem; font-weight: bold;
+    }
+    #log-box {
+      flex: 1; min-height: 0;
+      background: #111; color: #ddd;
+      font-size: 0.75rem; padding: 8px;
+      overflow-y: auto; font-family: monospace;
+      line-height: 1.5;
+    }
+    .log-ok   { color: #6dbb6d; }
+    .log-err  { color: #f07070; }
+    .log-info { color: #aaa; }
+    .log-ts   { color: #555; margin-right: 5px; }
+
+    /* ── Typography ── */
+    h1 { font-size: 1.3rem; margin-bottom: 18px; margin-top: 4px; }
+    h2 { font-size: 1rem; margin-bottom: 12px; }
+    h3 { font-size: 0.85rem; font-weight: bold; color: #444; margin-bottom: 10px;
+         text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ── Buttons ── */
     button {
       padding: 6px 14px; cursor: pointer; border: 1px solid #555;
       border-radius: 4px; background: #fff; font-family: monospace; font-size: 0.85rem;
@@ -29,6 +65,7 @@
     button.danger:hover:not(:disabled) { background: #fff0f0; border-color: #c00; }
     button.sm { padding: 3px 9px; font-size: 0.78rem; }
 
+    /* ── Inputs ── */
     input[type=text], input[type=number] {
       font-family: monospace; font-size: 0.85rem;
       border: 1px solid #ccc; border-radius: 3px;
@@ -76,9 +113,8 @@
     .joint-name { font-size: 0.78rem; color: #888; }
     .joint-num { width: 72px; text-align: right; font-size: 0.82rem; padding: 3px 5px; }
     .joint-unit { font-size: 0.72rem; color: #aaa; }
-    .joint-range { font-size: 0.68rem; color: #bbb; text-align: right; }
 
-    /* ── Param rows (speed/tolerance/etc.) ── */
+    /* ── Param rows ── */
     .param-row {
       display: grid; grid-template-columns: 120px 1fr 80px 30px;
       align-items: center; gap: 6px; padding: 4px 0;
@@ -106,18 +142,6 @@
     .state-box.ok  { color: #2a6e2a; }
     .state-box.err { color: #c00; }
     .state-box.neutral { color: #555; }
-
-    /* ── Event log ── */
-    #log-panel { margin-top: 14px; }
-    #log-box {
-      background: #111; color: #ddd; font-size: 0.78rem;
-      border-radius: 4px; padding: 10px; height: 200px;
-      overflow-y: auto; font-family: monospace;
-    }
-    .log-ok   { color: #6dbb6d; }
-    .log-err  { color: #f07070; }
-    .log-info { color: #aaa; }
-    .log-ts   { color: #666; margin-right: 6px; }
   </style>
 </head>
 <body>
@@ -130,274 +154,281 @@
   <a href="/dsl-manage">DSL Manage</a>
 </nav>
 
-<h1>Cobot Control</h1>
+<div id="layout">
 
-<!-- ── Status bar ── -->
-<div id="status-bar">
-  <div class="dot offline" id="conn-dot"></div>
-  <span id="status-text">Checking cobot service…</span>
-  <span class="badge" id="mode-badge" style="display:none"></span>
-  <span class="badge" id="busy-badge" style="display:none;background:#fff3e0;border-color:#e07b00;color:#b05a00">BUSY</span>
-  <button class="sm" onclick="refreshStatus()">Refresh</button>
-  <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:0.78rem">
-    <input type="checkbox" id="autopoll" onchange="toggleAutopoll()"> Auto-refresh ogni
-    <input type="number" id="poll-interval" value="3" min="1" max="60" step="1"
-           style="width:46px;padding:2px 4px;font-size:0.78rem" onchange="toggleAutopoll()"> s
-  </label>
-</div>
+  <!-- ── Main content ── -->
+  <div id="main-col">
+    <h1>Cobot Control</h1>
 
-<!-- ── Connection ── -->
-<div class="panel">
-  <h2>Connection</h2>
-  <div class="row">
-    <div class="col">
-      <label>Robot IP</label>
-      <input type="text" id="robot-ip" value="172.16.0.3" style="width:160px">
+    <!-- ── Status bar ── -->
+    <div id="status-bar">
+      <div class="dot offline" id="conn-dot"></div>
+      <span id="status-text">Checking cobot service…</span>
+      <span class="badge" id="mode-badge" style="display:none"></span>
+      <span class="badge" id="busy-badge" style="display:none;background:#fff3e0;border-color:#e07b00;color:#b05a00">BUSY</span>
+      <button class="sm" onclick="refreshStatus()">Refresh</button>
+      <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:0.78rem">
+        <input type="checkbox" id="autopoll" onchange="toggleAutopoll()"> Auto-refresh ogni
+        <input type="number" id="poll-interval" value="3" min="1" max="60" step="1"
+               style="width:46px;padding:2px 4px;font-size:0.78rem" onchange="toggleAutopoll()"> s
+      </label>
     </div>
-    <div class="col" style="padding-top:16px">
-      <label><input type="checkbox" id="enforce-rt" checked> Enforce realtime</label>
-    </div>
-    <div style="flex:1"></div>
-    <button class="primary" style="margin-top:16px" onclick="connectRobot()">Connect</button>
-    <button class="danger" style="margin-top:16px" onclick="disconnectRobot()">Disconnect</button>
-    <button class="sm" style="margin-top:16px" onclick="getRobotConfig()">Config</button>
-    <button class="sm" style="margin-top:16px" onclick="runRecovery()">Recovery</button>
-  </div>
-  <div class="result-line" id="conn-result"></div>
-</div>
 
-<!-- ── Main grid ── -->
-<div class="main-grid">
-
-  <!-- LEFT: Motion -->
-  <div>
-    <!-- Move Home -->
+    <!-- ── Connection ── -->
     <div class="panel">
-      <h3>Move Home</h3>
-      <div class="param-row">
-        <label>Speed factor</label>
-        <input type="range" id="home-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('home-speed-s','home-speed-n')">
-        <input type="number" class="param-num" id="home-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('home-speed-n','home-speed-s')">
-        <span class="param-unit">0–1</span>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button class="primary" onclick="moveHome()">Go Home</button>
-      </div>
-      <div class="result-line" id="home-result"></div>
-    </div>
-
-    <!-- Move Joints -->
-    <div class="panel">
-      <h3>Move to Joint Positions</h3>
-      <div id="joints-rows"></div>
-      <div class="param-row" style="margin-top:8px">
-        <label>Speed factor</label>
-        <input type="range" id="joints-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('joints-speed-s','joints-speed-n')">
-        <input type="number" class="param-num" id="joints-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('joints-speed-n','joints-speed-s')">
-        <span class="param-unit">0–1</span>
-      </div>
-      <div class="param-row">
-        <label>Tolerance</label>
-        <input type="range" id="joints-tol-s" min="0.001" max="0.2" step="0.001" value="0.04" oninput="sync('joints-tol-s','joints-tol-n')">
-        <input type="number" class="param-num" id="joints-tol-n" min="0.001" max="0.2" step="0.001" value="0.04" oninput="sync('joints-tol-n','joints-tol-s')">
-        <span class="param-unit">rad</span>
-      </div>
-      <div class="row" style="margin-top:10px;gap:6px">
-        <button class="primary" onclick="moveJoints()">Move</button>
-        <button class="sm" onclick="setHomeValues()">Load Home</button>
-      </div>
-      <div class="result-line" id="joints-result"></div>
-    </div>
-
-    <!-- Move Relative -->
-    <div class="panel">
-      <h3>Move Relative (joint deltas)</h3>
-      <div id="deltas-rows"></div>
-      <div class="param-row" style="margin-top:8px">
-        <label>Speed factor</label>
-        <input type="range" id="rel-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-s','rel-speed-n')">
-        <input type="number" class="param-num" id="rel-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-n','rel-speed-s')">
-        <span class="param-unit">0–1</span>
-      </div>
-      <div class="row" style="margin-top:10px;gap:6px">
-        <button class="primary" onclick="moveRelative()">Move Relative</button>
-        <button class="sm" onclick="zeroDeltas()">Zero All</button>
-      </div>
-      <div class="result-line" id="rel-result"></div>
-    </div>
-
-    <!-- Impedance -->
-    <div class="panel">
-      <h3>Impedance Control</h3>
-      <div id="imp-rows"></div>
-      <div class="param-row" style="margin-top:8px">
-        <label>Duration</label>
-        <input type="range" id="imp-dur-s" min="0.5" max="30" step="0.5" value="5" oninput="sync('imp-dur-s','imp-dur-n')">
-        <input type="number" class="param-num" id="imp-dur-n" min="0.5" max="30" step="0.5" value="5" oninput="sync('imp-dur-n','imp-dur-s')">
-        <span class="param-unit">s</span>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button class="primary" onclick="runImpedance()">Run Impedance</button>
-      </div>
-      <div class="result-line" id="imp-result"></div>
-    </div>
-
-    <!-- Pick & Place -->
-    <div class="panel">
-      <h3>Pick &amp; Place</h3>
-      <div class="param-row">
-        <label>Grasp width</label>
-        <input type="range" id="pp-width-s" min="0" max="85" step="1" value="50" oninput="sync('pp-width-s','pp-width-n')">
-        <input type="number" class="param-num" id="pp-width-n" min="0" max="85" step="1" value="50" oninput="sync('pp-width-n','pp-width-s')">
-        <span class="param-unit">mm</span>
-      </div>
-      <div class="param-row">
-        <label>Grasp force</label>
-        <input type="range" id="pp-force-s" min="0" max="140" step="1" value="60" oninput="sync('pp-force-s','pp-force-n')">
-        <input type="number" class="param-num" id="pp-force-n" min="0" max="140" step="1" value="60" oninput="sync('pp-force-n','pp-force-s')">
-        <span class="param-unit">N</span>
-      </div>
-      <div class="param-row">
-        <label>Speed factor</label>
-        <input type="range" id="pp-speed-s" min="0.01" max="1" step="0.01" value="0.15" oninput="sync('pp-speed-s','pp-speed-n')">
-        <input type="number" class="param-num" id="pp-speed-n" min="0.01" max="1" step="0.01" value="0.15" oninput="sync('pp-speed-n','pp-speed-s')">
-        <span class="param-unit">0–1</span>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button class="primary" onclick="pickAndPlace()">Run Pick &amp; Place</button>
-      </div>
-      <div class="result-line" id="pp-result"></div>
-    </div>
-
-    <!-- Collision Behavior -->
-    <div class="panel">
-      <h3>Collision Behavior</h3>
-      <p style="font-size:0.78rem;color:#888;margin-bottom:8px">Soglie come array JSON di 7 float (lascia vuoto per non modificare)</p>
-      <div class="col" style="gap:5px">
-        <label>lower_torque (Nm)</label>
-        <input type="text" id="cb-lt" placeholder='[20,20,18,18,16,14,12]' style="width:100%">
-        <label>upper_torque (Nm)</label>
-        <input type="text" id="cb-ut" placeholder='[87,87,87,87,12,12,12]' style="width:100%">
-        <label>lower_force (N)</label>
-        <input type="text" id="cb-lf" placeholder='[20,20,20,25,25,25,25]' style="width:100%">
-        <label>upper_force (N)</label>
-        <input type="text" id="cb-uf" placeholder='[99,99,99,99,99,99,99]' style="width:100%">
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button class="primary" onclick="setCollisionBehavior()">Set</button>
-      </div>
-      <div class="result-line" id="cb-result"></div>
-    </div>
-  </div>
-
-  <!-- RIGHT: Gripper + Robot State -->
-  <div>
-    <!-- Robot State -->
-    <div class="panel">
-      <h3>Robot State &amp; Errors</h3>
-      <div class="row" style="flex-wrap:wrap;gap:5px">
-        <button class="sm" onclick="getRobotState()">State</button>
-        <button class="sm" onclick="getRobotStatus()">Status</button>
-        <button class="sm" onclick="getRobotErrors()">Errors</button>
-        <button class="sm danger" onclick="clearRobotErrors()">Clear Errors</button>
-      </div>
-      <div class="state-box" id="robot-state-box"></div>
-    </div>
-
-    <!-- Gripper State -->
-    <div class="panel">
-      <h3>Gripper State &amp; Errors</h3>
-      <div class="row" style="flex-wrap:wrap;gap:5px">
-        <button class="sm" onclick="getGripperState()">State</button>
-        <button class="sm" onclick="getGripperErrors()">Errors</button>
-        <button class="sm danger" onclick="clearGripperErrors()">Clear Errors</button>
-        <button class="sm" onclick="gripperResetLock()">Reset Lock</button>
-        <button class="sm" onclick="gripperReconnect()">Reconnect</button>
-      </div>
-      <div class="state-box" id="gripper-state-box"></div>
-    </div>
-
-    <!-- Gripper Commands -->
-    <div class="panel">
-      <h3>Gripper Commands</h3>
-
-      <div style="margin-bottom:10px">
-        <div class="row"><button class="primary" onclick="gripperHome()">Homing</button></div>
-        <div class="result-line" id="ghome-result"></div>
-      </div>
-
-      <hr class="sep">
-      <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Open</p>
-      <div class="param-row">
-        <label>Width</label>
-        <input type="range" id="gopen-w-s" min="0" max="85" step="1" value="80" oninput="sync('gopen-w-s','gopen-w-n')">
-        <input type="number" class="param-num" id="gopen-w-n" min="0" max="85" step="1" value="80" oninput="sync('gopen-w-n','gopen-w-s')">
-        <span class="param-unit">mm</span>
-      </div>
-      <div class="param-row">
-        <label>Speed</label>
-        <input type="range" id="gopen-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gopen-sp-s','gopen-sp-n')">
-        <input type="number" class="param-num" id="gopen-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gopen-sp-n','gopen-sp-s')">
-        <span class="param-unit">m/s</span>
-      </div>
-      <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperOpen()">Open</button></div>
-      <div class="result-line" id="gopen-result"></div>
-
-      <hr class="sep">
-      <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Close</p>
-      <div class="param-row">
-        <label>Speed</label>
-        <input type="range" id="gclose-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gclose-sp-s','gclose-sp-n')">
-        <input type="number" class="param-num" id="gclose-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gclose-sp-n','gclose-sp-s')">
-        <span class="param-unit">m/s</span>
-      </div>
-      <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperClose()">Close</button></div>
-      <div class="result-line" id="gclose-result"></div>
-
-      <hr class="sep">
-      <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Grasp</p>
-      <div class="param-row">
-        <label>Width</label>
-        <input type="range" id="ggrasp-w-s" min="0" max="85" step="1" value="50" oninput="sync('ggrasp-w-s','ggrasp-w-n')">
-        <input type="number" class="param-num" id="ggrasp-w-n" min="0" max="85" step="1" value="50" oninput="sync('ggrasp-w-n','ggrasp-w-s')">
-        <span class="param-unit">mm</span>
-      </div>
-      <div class="param-row">
-        <label>Force</label>
-        <input type="range" id="ggrasp-f-s" min="0" max="140" step="1" value="60" oninput="sync('ggrasp-f-s','ggrasp-f-n')">
-        <input type="number" class="param-num" id="ggrasp-f-n" min="0" max="140" step="1" value="60" oninput="sync('ggrasp-f-n','ggrasp-f-s')">
-        <span class="param-unit">N</span>
-      </div>
-      <div class="param-row">
-        <label>Speed</label>
-        <input type="range" id="ggrasp-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('ggrasp-sp-s','ggrasp-sp-n')">
-        <input type="number" class="param-num" id="ggrasp-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('ggrasp-sp-n','ggrasp-sp-s')">
-        <span class="param-unit">m/s</span>
-      </div>
-      <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperGrasp()">Grasp</button></div>
-      <div class="result-line" id="ggrasp-result"></div>
-
-      <hr class="sep">
+      <h2>Connection</h2>
       <div class="row">
-        <button onclick="gripperRelease()">Release</button>
-        <button class="danger" onclick="gripperStop()">Stop</button>
+        <div class="col">
+          <label>Robot IP</label>
+          <input type="text" id="robot-ip" value="172.16.0.3" style="width:160px">
+        </div>
+        <div class="col" style="padding-top:16px">
+          <label><input type="checkbox" id="enforce-rt" checked> Enforce realtime</label>
+        </div>
+        <div style="flex:1"></div>
+        <button class="primary" style="margin-top:16px" onclick="connectRobot()">Connect</button>
+        <button class="danger" style="margin-top:16px" onclick="disconnectRobot()">Disconnect</button>
+        <button class="sm" style="margin-top:16px" onclick="getRobotConfig()">Config</button>
+        <button class="sm" style="margin-top:16px" onclick="runRecovery()">Recovery</button>
       </div>
-      <div class="result-line" id="grel-result"></div>
+      <div class="result-line" id="conn-result"></div>
     </div>
-  </div>
-</div>
 
-<!-- ── Event Log ── -->
-<div class="panel" id="log-panel">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-    <h2 style="margin:0">Event Log</h2>
-    <button class="sm" onclick="clearLog()">Clear</button>
-    <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:0.78rem">
-      <input type="checkbox" id="autoscroll" checked> Auto-scroll
-    </label>
+    <!-- ── Main grid ── -->
+    <div class="main-grid">
+
+      <!-- LEFT: Motion -->
+      <div>
+        <!-- Move Home -->
+        <div class="panel">
+          <h3>Move Home</h3>
+          <div class="param-row">
+            <label>Speed factor</label>
+            <input type="range" id="home-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('home-speed-s','home-speed-n')">
+            <input type="number" class="param-num" id="home-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('home-speed-n','home-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" onclick="moveHome()">Go Home</button>
+          </div>
+          <div class="result-line" id="home-result"></div>
+        </div>
+
+        <!-- Move Joints -->
+        <div class="panel">
+          <h3>Move to Joint Positions</h3>
+          <div id="joints-rows"></div>
+          <div class="param-row" style="margin-top:8px">
+            <label>Speed factor</label>
+            <input type="range" id="joints-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('joints-speed-s','joints-speed-n')">
+            <input type="number" class="param-num" id="joints-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('joints-speed-n','joints-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="param-row">
+            <label>Tolerance</label>
+            <input type="range" id="joints-tol-s" min="0.001" max="0.2" step="0.001" value="0.04" oninput="sync('joints-tol-s','joints-tol-n')">
+            <input type="number" class="param-num" id="joints-tol-n" min="0.001" max="0.2" step="0.001" value="0.04" oninput="sync('joints-tol-n','joints-tol-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="row" style="margin-top:10px;gap:6px">
+            <button class="primary" onclick="moveJoints()">Move</button>
+            <button class="sm" onclick="setHomeValues()">Load Home</button>
+          </div>
+          <div class="result-line" id="joints-result"></div>
+        </div>
+
+        <!-- Move Relative -->
+        <div class="panel">
+          <h3>Move Relative (joint deltas)</h3>
+          <div id="deltas-rows"></div>
+          <div class="param-row" style="margin-top:8px">
+            <label>Speed factor</label>
+            <input type="range" id="rel-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-s','rel-speed-n')">
+            <input type="number" class="param-num" id="rel-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-n','rel-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="margin-top:10px;gap:6px">
+            <button class="primary" onclick="moveRelative()">Move Relative</button>
+            <button class="sm" onclick="zeroDeltas()">Zero All</button>
+          </div>
+          <div class="result-line" id="rel-result"></div>
+        </div>
+
+        <!-- Impedance -->
+        <div class="panel">
+          <h3>Impedance Control</h3>
+          <div id="imp-rows"></div>
+          <div class="param-row" style="margin-top:8px">
+            <label>Duration</label>
+            <input type="range" id="imp-dur-s" min="0.5" max="30" step="0.5" value="5" oninput="sync('imp-dur-s','imp-dur-n')">
+            <input type="number" class="param-num" id="imp-dur-n" min="0.5" max="30" step="0.5" value="5" oninput="sync('imp-dur-n','imp-dur-s')">
+            <span class="param-unit">s</span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" onclick="runImpedance()">Run Impedance</button>
+          </div>
+          <div class="result-line" id="imp-result"></div>
+        </div>
+
+        <!-- Pick & Place -->
+        <div class="panel">
+          <h3>Pick &amp; Place</h3>
+          <div class="param-row">
+            <label>Grasp width</label>
+            <input type="range" id="pp-width-s" min="0" max="85" step="1" value="50" oninput="sync('pp-width-s','pp-width-n')">
+            <input type="number" class="param-num" id="pp-width-n" min="0" max="85" step="1" value="50" oninput="sync('pp-width-n','pp-width-s')">
+            <span class="param-unit">mm</span>
+          </div>
+          <div class="param-row">
+            <label>Grasp force</label>
+            <input type="range" id="pp-force-s" min="0" max="140" step="1" value="60" oninput="sync('pp-force-s','pp-force-n')">
+            <input type="number" class="param-num" id="pp-force-n" min="0" max="140" step="1" value="60" oninput="sync('pp-force-n','pp-force-s')">
+            <span class="param-unit">N</span>
+          </div>
+          <div class="param-row">
+            <label>Speed factor</label>
+            <input type="range" id="pp-speed-s" min="0.01" max="1" step="0.01" value="0.15" oninput="sync('pp-speed-s','pp-speed-n')">
+            <input type="number" class="param-num" id="pp-speed-n" min="0.01" max="1" step="0.01" value="0.15" oninput="sync('pp-speed-n','pp-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" onclick="pickAndPlace()">Run Pick &amp; Place</button>
+          </div>
+          <div class="result-line" id="pp-result"></div>
+        </div>
+
+        <!-- Collision Behavior -->
+        <div class="panel">
+          <h3>Collision Behavior</h3>
+          <p style="font-size:0.78rem;color:#888;margin-bottom:8px">Soglie come array JSON di 7 float (lascia vuoto per non modificare)</p>
+          <div class="col" style="gap:5px">
+            <label>lower_torque (Nm)</label>
+            <input type="text" id="cb-lt" placeholder='[20,20,18,18,16,14,12]' style="width:100%">
+            <label>upper_torque (Nm)</label>
+            <input type="text" id="cb-ut" placeholder='[87,87,87,87,12,12,12]' style="width:100%">
+            <label>lower_force (N)</label>
+            <input type="text" id="cb-lf" placeholder='[20,20,20,25,25,25,25]' style="width:100%">
+            <label>upper_force (N)</label>
+            <input type="text" id="cb-uf" placeholder='[99,99,99,99,99,99,99]' style="width:100%">
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" onclick="setCollisionBehavior()">Set</button>
+          </div>
+          <div class="result-line" id="cb-result"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Gripper + Robot State -->
+      <div>
+        <!-- Robot State -->
+        <div class="panel">
+          <h3>Robot State &amp; Errors</h3>
+          <div class="row" style="flex-wrap:wrap;gap:5px">
+            <button class="sm" onclick="getRobotState()">State</button>
+            <button class="sm" onclick="getRobotStatus()">Status</button>
+            <button class="sm" onclick="getRobotErrors()">Errors</button>
+            <button class="sm danger" onclick="clearRobotErrors()">Clear Errors</button>
+          </div>
+          <div class="state-box" id="robot-state-box"></div>
+        </div>
+
+        <!-- Gripper State -->
+        <div class="panel">
+          <h3>Gripper State &amp; Errors</h3>
+          <div class="row" style="flex-wrap:wrap;gap:5px">
+            <button class="sm" onclick="getGripperState()">State</button>
+            <button class="sm" onclick="getGripperErrors()">Errors</button>
+            <button class="sm danger" onclick="clearGripperErrors()">Clear Errors</button>
+            <button class="sm" onclick="gripperResetLock()">Reset Lock</button>
+            <button class="sm" onclick="gripperReconnect()">Reconnect</button>
+          </div>
+          <div class="state-box" id="gripper-state-box"></div>
+        </div>
+
+        <!-- Gripper Commands -->
+        <div class="panel">
+          <h3>Gripper Commands</h3>
+
+          <div style="margin-bottom:10px">
+            <div class="row"><button class="primary" onclick="gripperHome()">Homing</button></div>
+            <div class="result-line" id="ghome-result"></div>
+          </div>
+
+          <hr class="sep">
+          <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Open</p>
+          <div class="param-row">
+            <label>Width</label>
+            <input type="range" id="gopen-w-s" min="0" max="85" step="1" value="80" oninput="sync('gopen-w-s','gopen-w-n')">
+            <input type="number" class="param-num" id="gopen-w-n" min="0" max="85" step="1" value="80" oninput="sync('gopen-w-n','gopen-w-s')">
+            <span class="param-unit">mm</span>
+          </div>
+          <div class="param-row">
+            <label>Speed</label>
+            <input type="range" id="gopen-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gopen-sp-s','gopen-sp-n')">
+            <input type="number" class="param-num" id="gopen-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gopen-sp-n','gopen-sp-s')">
+            <span class="param-unit">m/s</span>
+          </div>
+          <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperOpen()">Open</button></div>
+          <div class="result-line" id="gopen-result"></div>
+
+          <hr class="sep">
+          <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Close</p>
+          <div class="param-row">
+            <label>Speed</label>
+            <input type="range" id="gclose-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gclose-sp-s','gclose-sp-n')">
+            <input type="number" class="param-num" id="gclose-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('gclose-sp-n','gclose-sp-s')">
+            <span class="param-unit">m/s</span>
+          </div>
+          <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperClose()">Close</button></div>
+          <div class="result-line" id="gclose-result"></div>
+
+          <hr class="sep">
+          <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:6px">Grasp</p>
+          <div class="param-row">
+            <label>Width</label>
+            <input type="range" id="ggrasp-w-s" min="0" max="85" step="1" value="50" oninput="sync('ggrasp-w-s','ggrasp-w-n')">
+            <input type="number" class="param-num" id="ggrasp-w-n" min="0" max="85" step="1" value="50" oninput="sync('ggrasp-w-n','ggrasp-w-s')">
+            <span class="param-unit">mm</span>
+          </div>
+          <div class="param-row">
+            <label>Force</label>
+            <input type="range" id="ggrasp-f-s" min="0" max="140" step="1" value="60" oninput="sync('ggrasp-f-s','ggrasp-f-n')">
+            <input type="number" class="param-num" id="ggrasp-f-n" min="0" max="140" step="1" value="60" oninput="sync('ggrasp-f-n','ggrasp-f-s')">
+            <span class="param-unit">N</span>
+          </div>
+          <div class="param-row">
+            <label>Speed</label>
+            <input type="range" id="ggrasp-sp-s" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('ggrasp-sp-s','ggrasp-sp-n')">
+            <input type="number" class="param-num" id="ggrasp-sp-n" min="0.01" max="0.2" step="0.005" value="0.1" oninput="sync('ggrasp-sp-n','ggrasp-sp-s')">
+            <span class="param-unit">m/s</span>
+          </div>
+          <div class="row" style="margin-top:6px"><button class="primary" onclick="gripperGrasp()">Grasp</button></div>
+          <div class="result-line" id="ggrasp-result"></div>
+
+          <hr class="sep">
+          <div class="row">
+            <button onclick="gripperRelease()">Release</button>
+            <button class="danger" onclick="gripperStop()">Stop</button>
+          </div>
+          <div class="result-line" id="grel-result"></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /#main-col -->
+
+  <!-- ── Log sidebar ── -->
+  <div id="log-sidebar">
+    <div id="log-sidebar-hdr">
+      <span style="flex:1">Event Log</span>
+      <button class="sm" onclick="clearLog()">Clear</button>
+      <label style="font-size:0.72rem;display:flex;align-items:center;gap:4px;font-weight:normal">
+        <input type="checkbox" id="autoscroll" checked> Scroll
+      </label>
+    </div>
+    <div id="log-box"></div>
   </div>
-  <div id="log-box"></div>
-</div>
+
+</div><!-- /#layout -->
 
 <script>
   // ── Joint definitions (Franka Panda) ────────────────────────────────────
