@@ -1,94 +1,107 @@
 # Procedure DSL
 
-Estrazione automatica di step di assemblaggio da documenti tecnici (PDF, DOCX, TXT) tramite LLM locale, editing manuale, e generazione di DSL interno/esterno.
+Automatic extraction of assembly steps from technical documents (PDF, DOCX, TXT) via a local LLM, manual editing, and generation of an internal/external DSL.
 
 ---
 
-## Struttura
+## Structure
 
 ```
 Procedure_DSL/
-├── ui_dsl/                  # Interfaccia web + parser DSL (qualsiasi OS)
+├── ui_dsl/                  # Web interface + DSL parser (any OS)
 │   ├── src/
 │   │   ├── main.py
 │   │   ├── blueprints/api_ui.py
 │   │   ├── templates/       # editor.html, index.html, cobot.html
-│   │   ├── parser_dsl/      # modelli DSL, generatori interno/esterno
+│   │   ├── parser_dsl/      # DSL models, internal/external generators
 │   │   ├── pipeline/        # csv_writer, dsl_runner, schema
-│   │   └── output/          # CSV e DSL generati
+│   │   └── output/          # Generated CSV and DSL files
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── extractor_pipeline/      # Pipeline LLM (richiede NVIDIA GPU)
+├── extractor_pipeline/      # LLM pipeline (requires NVIDIA GPU)
 │   ├── src/
 │   │   ├── main.py
 │   │   ├── blueprints/api.py
-│   │   ├── models/llm.py    # wrapper LLM (Qwen, Gemma, ...)
+│   │   ├── models/llm.py    # LLM wrapper (Qwen, Gemma, ...)
 │   │   ├── pipeline/        # extractor, runner, validator, refiner
 │   │   ├── document_processor/
-│   │   ├── examples/        # few-shot examples per il prompt
-│   │   ├── config/          # config.yaml (modello, device, ecc.)
-│   │   └── input_files/     # documenti da estrarre (opzionale)
+│   │   ├── examples/        # few-shot examples for the prompt
+│   │   ├── config/          # config.yaml (model, device, etc.)
+│   │   └── input_files/     # documents to extract (optional)
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── cobot/                   # Cobot API server (Franka) — non tracciato da git
+├── cobot/                   # Cobot API server (Franka) — not tracked by git
 │   ├── app/routes/          # robot.py, gripper.py
 │   ├── Dockerfile
-│   └── docker-compose.yml   # per uso standalone con network_mode: host (FCI)
+│   └── docker-compose.yml   # for standalone use with network_mode: host (FCI)
 │
 └── docker-compose.yml
 ```
 
 ---
 
-## Avvio
+## Services
 
-| Servizio    | Porta | Descrizione                              |
-|-------------|-------|------------------------------------------|
-| `ui`        | 8000  | Editor, generazione DSL, pagina Cobot    |
-| `extractor` | 8001  | Estrazione LLM (richiede NVIDIA GPU)     |
-| `cobot`     | 5001  | API robot Franka (richiede `./cobot/`)   |
+| Service     | Port | Description                                  |
+|-------------|------|----------------------------------------------|
+| `ui`        | 8000 | Editor, DSL generation, Cobot page           |
+| `extractor` | 8001 | LLM extraction (requires NVIDIA GPU)         |
+| `cobot`     | 5001 | Franka robot API (requires `./cobot/`)       |
 
-### Configurazioni disponibili
+### Available configurations
 
 ```bash
-# Tutto (default): UI + Extractor + Cobot
+# Everything (default): UI + Extractor + Cobot
 docker compose up --build
 
-# UI + Extractor (senza cobot)
+# UI + Extractor (without cobot)
 docker compose up ui extractor --build
 
-# Solo UI (no GPU — per editing CSV e DSL già estratti)
+# UI only (no GPU — for editing already-extracted CSV and DSL)
 docker compose up ui --no-deps --build
 
-# Solo UI + Cobot (no GPU)
+# UI + Cobot only (no GPU)
 docker compose up ui cobot --no-deps --build
 ```
 
-> **Nota cobot:** la cartella `./cobot/` non è tracciata da git e va copiata manualmente.
-> Per uso con il robot Franka reale via FCI, avviare il cobot standalone:
+> **Cobot note:** the `./cobot/` folder is not tracked by git. From the root of `Procedure_DSL/`, run:
+> ```bash
+> git clone --filter=blob:none --sparse https://github.com/MizuNoMashu/cobot-assembly-components
+> cd cobot-assembly-components && git sparse-checkout set cobot
+> mv cobot ../cobot && cd .. && rm -rf cobot-assembly-components
+> ```
+> If the cobot Docker build fails during the `cmake --build` steps (OOM or compiler crash), edit `cobot/Dockerfile` and change `-j$(nproc)` to `-j1` on the failing step.
+>
+> For use with the real Franka robot via FCI, start the cobot standalone:
 > ```bash
 > cd cobot && docker compose up --build
 > ```
 
 ---
 
-## Flusso
+## Cobot Integration
+
+The cobot component exposes a REST API to control the Franka robot arm during assembly procedures. For installation, configuration, and API reference, see the [cobot-assembly-components](https://github.com/MizuNoMashu/cobot-assembly-components) repository.
+
+---
+
+## Pipeline
 
 ```
-Documento (PDF/DOCX/TXT)
+Document (PDF/DOCX/TXT)
         │
         ▼
-  [extractor:8001]  ←── LLM locale (GPU)
+  [extractor:8001]  ←── local LLM (GPU)
   /extract-csv
-        │  restituisce CSV come stringa JSON
+        │  returns CSV as JSON string
         ▼
-   [ui:8000]        ←── salva CSV in output/
+   [ui:8000]        ←── saves CSV to output/
   /editor
-        │  editing manuale degli step
+        │  manual step editing
         ▼
-  /generate-dsl     ←── parser_dsl (puro Python, no GPU)
+  /generate-dsl     ←── parser_dsl (pure Python, no GPU)
         │
         ▼
   output/*.yml      ← External DSL (YAML)
@@ -97,32 +110,32 @@ Documento (PDF/DOCX/TXT)
 
 ---
 
-## Formato CSV
+## CSV Format
 
-Ogni step di assemblaggio ha i campi:
+Each assembly step has the following fields:
 
-| Campo            | Formato                                      |
+| Field            | Format                                       |
 |------------------|----------------------------------------------|
-| COMPONENT        | Nome parte (es. `Screw 1`)                   |
+| COMPONENT        | Part name (e.g. `Screw 1`)                   |
 | COMPONENT DETAIL | `Key = Value; Key = Value;`                  |
 | ACTION           | `Place` / `Insert` / `Screw in` / `Connect` / `Solder` / `Apply` / `Remove` |
-| APPLIED TO       | `Componente;` o `Componente.Caratteristica;` |
-| ORIENTATION      | `ParteCorrente = AltroComponente;` o `ParteCorrente = AltroComponente.Dettaglio;` |
-| TOOL             | Nome utensile                                |
+| APPLIED TO       | `Component;` or `Component.Feature;`         |
+| ORIENTATION      | `CurrentPart = OtherComponent;` or `CurrentPart = OtherComponent.Detail;` |
+| TOOL             | Tool name                                    |
 | TOOL DETAIL      | `Key = Value; Key = Value;`                  |
-| ASSEMBLY DETAIL  | Note, avvertenze, istruzioni aggiuntive      |
+| ASSEMBLY DETAIL  | Notes, warnings, additional instructions     |
 
 ---
 
-## Configurazione LLM
+## LLM Configuration
 
-Modifica `extractor_pipeline/src/config/config.yaml`:
+Edit `extractor_pipeline/src/config/config.yaml`:
 
 ```yaml
 device: cuda
 llm:
-  model: google/gemma-4-E4B-it   # qualsiasi modello HuggingFace
+  model: google/gemma-4-E4B-it   # any HuggingFace model
   max_tokens: 4096
 ```
 
-La cache dei modelli HuggingFace è persistita in `extractor_pipeline/src/models/cache/`.
+The HuggingFace model cache is persisted in `extractor_pipeline/src/models/cache/`.
