@@ -194,6 +194,102 @@
       <div class="result-line" id="conn-result"></div>
     </div>
 
+    <!-- ── Desk API ── -->
+    <div style="margin-bottom:14px">
+      <h2>Desk API</h2>
+
+      <!-- Desk Connection -->
+      <div class="panel">
+        <h3>Desk API Connection</h3>
+        <div class="row" style="flex-wrap:wrap">
+          <div class="col">
+            <label>Robot IP</label>
+            <input type="text" id="desk-ip" value="172.16.0.3" style="width:150px">
+          </div>
+          <div class="col">
+            <label>Username</label>
+            <input type="text" id="desk-user" value="fixed_arm" style="width:120px">
+          </div>
+          <div class="col">
+            <label>Password</label>
+            <input type="password" id="desk-pass" placeholder="password" style="width:120px">
+          </div>
+          <div class="col">
+            <label>Owner</label>
+            <input type="text" id="desk-owner" value="franka-backend" style="width:130px">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;flex-wrap:wrap">
+          <button class="primary" onclick="deskConnect()">Connect Desk</button>
+          <button class="danger" onclick="deskDisconnect()">Disconnect</button>
+          <button class="sm" onclick="deskConfig()">Config</button>
+          <button class="primary" style="background:#1a5c1a;border-color:#1a5c1a" onclick="deskPrepareAndConnect()">Prepare &amp; Connect</button>
+          <button class="sm" onclick="deskPrepareFCI()">Prepare FCI only</button>
+        </div>
+        <div class="result-line" id="desk-conn-result"></div>
+      </div>
+
+      <!-- Desk Controls -->
+      <div class="panel">
+        <h3>Desk Controls</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:5px">System</p>
+            <div class="row" style="flex-wrap:wrap;gap:4px">
+              <button class="sm" onclick="deskSystem()">State</button>
+              <button class="sm" onclick="deskSystemStatus()">Status</button>
+              <button class="sm" onclick="deskOperatingMode()">Op. Mode</button>
+              <button class="sm" onclick="deskChangeToExecution()">→ Execution</button>
+              <button class="sm danger" onclick="deskReboot()">Reboot</button>
+              <button class="sm danger" onclick="deskShutdown()">Shutdown</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:5px">FCI</p>
+            <div class="row" style="flex-wrap:wrap;gap:4px">
+              <button class="sm" onclick="deskFCIState()">FCI State</button>
+              <button class="sm" onclick="deskActivateFCI()">Activate FCI</button>
+              <button class="sm" onclick="deskDeactivateFCI()">Deactivate FCI</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:5px">Arm / Joints</p>
+            <div class="row" style="flex-wrap:wrap;gap:4px">
+              <button class="sm" onclick="deskArmInfo()">Arm Info</button>
+              <button class="sm" onclick="deskJoints()">Joints</button>
+              <button class="sm" onclick="deskUnlockJoints()">Unlock</button>
+              <button class="sm" onclick="deskLockJoints()">Lock</button>
+              <button class="sm" onclick="deskArmWarnings()">Warnings</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:5px">Control Token</p>
+            <div class="row" style="flex-wrap:wrap;gap:4px">
+              <button class="sm" onclick="deskTokenState()">Token State</button>
+              <button class="sm" onclick="deskTakeToken()">Take Token</button>
+              <button class="sm" onclick="deskReleaseToken()">Release Token</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:5px">Safety</p>
+            <div class="row" style="flex-wrap:wrap;gap:4px">
+              <button class="sm" onclick="deskSelfTests()">Self-Tests</button>
+              <button class="sm" onclick="deskExecuteSelfTests()">Run Self-Tests</button>
+              <button class="sm" onclick="deskSafetyRecovery()">Recovery</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:0.78rem;font-weight:bold;color:#666;margin-bottom:5px">Errors</p>
+            <div class="row" style="flex-wrap:wrap;gap:4px">
+              <button class="sm" onclick="deskErrors()">Get Errors</button>
+              <button class="sm danger" onclick="deskClearErrors()">Clear</button>
+            </div>
+          </div>
+        </div>
+        <div class="state-box" id="desk-state-box"></div>
+      </div>
+    </div>
+
     <!-- ── Main grid ── -->
     <div class="main-grid">
 
@@ -496,14 +592,19 @@
   function log(method, path, ok, data) {
     const box = document.getElementById('log-box');
     const cls = ok ? 'log-ok' : 'log-err';
-    const summary = ok
-      ? (data.status || data.operation || JSON.stringify(data)).toString().slice(0, 80)
-      : (data.error || data.message || JSON.stringify(data)).toString().slice(0, 80);
+    const full = ok
+      ? (data.status || data.operation || JSON.stringify(data)).toString()
+      : (data.error || data.message || JSON.stringify(data)).toString();
     const line = document.createElement('div');
-    line.innerHTML =
-      `<span class="log-ts">${ts()}</span>` +
-      `<span class="${ok ? 'log-ok' : 'log-err'}">${method} /${path}</span>` +
-      ` <span class="${cls}">${summary}</span>`;
+    line.style.cssText = 'word-break:break-all;white-space:pre-wrap;';
+    const ts_span = document.createElement('span');
+    ts_span.className = 'log-ts'; ts_span.textContent = ts();
+    const route_span = document.createElement('span');
+    route_span.className = ok ? 'log-ok' : 'log-err';
+    route_span.textContent = `${method} /${path}`;
+    const msg_span = document.createElement('span');
+    msg_span.className = cls; msg_span.textContent = ' ' + full;
+    line.append(ts_span, route_span, msg_span);
     box.appendChild(line);
     if (document.getElementById('autoscroll').checked)
       box.scrollTop = box.scrollHeight;
@@ -539,9 +640,10 @@
   function setResult(id, data, ok) {
     const el = document.getElementById(id);
     el.className = 'result-line ' + (ok ? 'ok' : 'err');
+    el.style.whiteSpace = 'pre-wrap';
     el.textContent = ok
-      ? (data.status || data.operation || JSON.stringify(data)).toString().slice(0, 120)
-      : (data.error || data.message || JSON.stringify(data)).toString().slice(0, 120);
+      ? (data.status || data.operation || JSON.stringify(data)).toString()
+      : (data.error || data.message || JSON.stringify(data)).toString();
   }
   function showState(id, data, ok, neutral) {
     const box = document.getElementById(id);
@@ -717,6 +819,130 @@
   async function gripperStop() {
     const { ok, data } = await cf('POST', 'api/gripper/stop');
     setResult('grel-result', data, ok);
+  }
+
+  // ── Desk API ──────────────────────────────────────────────────────────────
+  function deskBody() {
+    return {
+      robot_ip: document.getElementById('desk-ip').value.trim(),
+      username: document.getElementById('desk-user').value.trim(),
+      password: document.getElementById('desk-pass').value,
+      owner: document.getElementById('desk-owner').value.trim(),
+    };
+  }
+  async function deskConnect() {
+    const { ok, data } = await cf('POST', 'api/desk/connect', deskBody());
+    setResult('desk-conn-result', data, ok);
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskDisconnect() {
+    const { ok, data } = await cf('POST', 'api/desk/disconnect');
+    setResult('desk-conn-result', data, ok);
+  }
+  async function deskConfig() {
+    const { ok, data } = await cf('GET', 'api/desk/config');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskPrepareFCI() {
+    const { ok, data } = await cf('POST', 'api/desk/prepare-fci');
+    setResult('desk-conn-result', data, ok);
+    showState('desk-state-box', data, ok, ok);
+  }
+  async function deskPrepareAndConnect() {
+    const { ok, data } = await cf('POST', 'api/desk/prepare-and-connect');
+    setResult('desk-conn-result', data, ok);
+    showState('desk-state-box', data, ok, ok);
+    if (ok) refreshStatus();
+  }
+  async function deskSystem() {
+    const { ok, data } = await cf('GET', 'api/desk/system');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskSystemStatus() {
+    const { ok, data } = await cf('GET', 'api/desk/system/status');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskOperatingMode() {
+    const { ok, data } = await cf('GET', 'api/desk/system/operating-mode');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskChangeToExecution() {
+    const { ok, data } = await cf('POST', 'api/desk/system/operating-mode/execution');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskReboot() {
+    if (!confirm('Reboot the robot?')) return;
+    const { ok, data } = await cf('POST', 'api/desk/system/reboot');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskShutdown() {
+    if (!confirm('Shutdown the robot?')) return;
+    const { ok, data } = await cf('POST', 'api/desk/system/shutdown');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskFCIState() {
+    const { ok, data } = await cf('GET', 'api/desk/fci');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskActivateFCI() {
+    const { ok, data } = await cf('POST', 'api/desk/fci/activate');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskDeactivateFCI() {
+    const { ok, data } = await cf('POST', 'api/desk/fci/deactivate');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskArmInfo() {
+    const { ok, data } = await cf('GET', 'api/desk/arm');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskJoints() {
+    const { ok, data } = await cf('GET', 'api/desk/arm/joints');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskUnlockJoints() {
+    const { ok, data } = await cf('POST', 'api/desk/arm/joints/unlock');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskLockJoints() {
+    const { ok, data } = await cf('POST', 'api/desk/arm/joints/lock');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskArmWarnings() {
+    const { ok, data } = await cf('GET', 'api/desk/arm/warnings');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskTokenState() {
+    const { ok, data } = await cf('GET', 'api/desk/control-token');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskTakeToken() {
+    const { ok, data } = await cf('POST', 'api/desk/control-token/take');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskReleaseToken() {
+    const { ok, data } = await cf('POST', 'api/desk/control-token/release');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskSelfTests() {
+    const { ok, data } = await cf('GET', 'api/desk/safety/self-tests');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskExecuteSelfTests() {
+    const { ok, data } = await cf('POST', 'api/desk/safety/self-tests/execute');
+    showState('desk-state-box', data, ok, false);
+  }
+  async function deskSafetyRecovery() {
+    const { ok, data } = await cf('GET', 'api/desk/safety/recovery');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskErrors() {
+    const { ok, data } = await cf('GET', 'api/desk/errors');
+    showState('desk-state-box', data, ok, true);
+  }
+  async function deskClearErrors() {
+    const { ok, data } = await cf('DELETE', 'api/desk/errors');
+    showState('desk-state-box', data, ok, false);
   }
 
   // ── Init ────────────────────────────────────────────────────────────────
