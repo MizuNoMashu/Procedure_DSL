@@ -18,6 +18,7 @@ from pipeline.dsl_converter import (
     external_to_internal,
     parse_internal_dsl,
 )
+from pipeline.output_paths import output_root, find_in_any_folder
 
 cobot_dsl_bp = Blueprint("cobot_dsl", __name__)
 
@@ -143,21 +144,6 @@ COBOT_OP_REGISTRY = {
 }
 
 
-def _output_dir() -> Path:
-    p = _SRC_DIR / "output"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def _safe_path(filename: str) -> Path | None:
-    """Resolve filename inside output_dir; return None if it escapes the dir."""
-    out = _output_dir().resolve()
-    path = (out / filename).resolve()
-    if not str(path).startswith(str(out)):
-        return None
-    return path
-
-
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 @cobot_dsl_bp.route("/dsl-cobot", methods=["GET"])
@@ -174,10 +160,10 @@ def dsl_manage_page():
 
 @cobot_dsl_bp.route("/dsl-cobot/list-dsl", methods=["GET"])
 def list_dsl_files():
-    """List available DSL files in the output directory."""
-    out = _output_dir()
-    external = sorted(f.name for f in out.glob("*_external_DSL.yml"))
-    internal = sorted(f.name for f in out.glob("*_internal_DSL.txt"))
+    """List available DSL files across all per-CSV output folders."""
+    out = output_root(_SRC_DIR)
+    external = sorted(f.name for f in out.glob("*/*_external_DSL.yml"))
+    internal = sorted(f.name for f in out.glob("*/*_internal_DSL.txt"))
     return jsonify({"external": external, "internal": internal})
 
 
@@ -194,10 +180,8 @@ def load_dsl():
     if not filename:
         return jsonify({"error": "filename required"}), 400
 
-    path = _safe_path(filename)
+    path = find_in_any_folder(_SRC_DIR, filename)
     if path is None:
-        return jsonify({"error": "Invalid filename"}), 400
-    if not path.exists():
         return jsonify({"error": "File not found"}), 404
 
     try:
@@ -251,8 +235,8 @@ def save_cobot_ops():
 
     ops = {int(k): v for k, v in ops_raw.items()}
 
-    int_path = _safe_path(int_filename)
-    if int_path is None or not int_path.exists():
+    int_path = find_in_any_folder(_SRC_DIR, int_filename)
+    if int_path is None:
         return jsonify({"error": f"Internal DSL not found: {int_filename}"}), 404
 
     try:
@@ -260,14 +244,13 @@ def save_cobot_ops():
     except Exception as e:
         return jsonify({"error": f"Failed to update internal DSL: {e}"}), 500
 
-    # Regenerate external DSL
+    # Regenerate external DSL alongside the internal DSL it was derived from
     ext_filename = int_filename.replace("_internal_DSL.txt", "_external_DSL.yml")
-    ext_path = _safe_path(ext_filename)
-    if ext_path is not None:
-        try:
-            internal_to_external(str(int_path), str(ext_path))
-        except Exception as e:
-            return jsonify({"error": f"Failed to regenerate external DSL: {e}"}), 500
+    ext_path = int_path.parent / ext_filename
+    try:
+        internal_to_external(str(int_path), str(ext_path))
+    except Exception as e:
+        return jsonify({"error": f"Failed to regenerate external DSL: {e}"}), 500
 
     return jsonify({
         "ok": True,
@@ -330,22 +313,20 @@ def convert_dsl():
     if not filename:
         return jsonify({"error": "filename required"}), 400
 
-    src_path = _safe_path(filename)
-    if src_path is None or not src_path.exists():
+    src_path = find_in_any_folder(_SRC_DIR, filename)
+    if src_path is None:
         return jsonify({"error": f"File not found: {filename}"}), 404
-
-    out = _output_dir()
 
     try:
         if direction == "internal_to_external":
             # e.g. Cubesat_internal_DSL.txt → Cubesat_external_DSL.yml
             out_name = filename.replace("_internal_DSL.txt", "_external_DSL.yml")
-            out_path = str(out / out_name)
+            out_path = str(src_path.parent / out_name)
             internal_to_external(str(src_path), out_path)
         else:
             # e.g. Cubesat_external_DSL.yml → Cubesat_internal_DSL.txt
             out_name = filename.replace("_external_DSL.yml", "_internal_DSL.txt")
-            out_path = str(out / out_name)
+            out_path = str(src_path.parent / out_name)
             external_to_internal(str(src_path), out_path)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

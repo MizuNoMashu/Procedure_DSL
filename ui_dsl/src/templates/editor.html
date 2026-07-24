@@ -198,6 +198,11 @@
   <span style="font-size:0.85rem;color:#444">Upload CSV:</span>
   <input type="file" id="csv-upload" accept=".csv" style="font-size:0.82rem">
   <button onclick="uploadCsv()">Load File</button>
+  <span class="sep">|</span>
+  <span style="font-size:0.85rem;color:#444">Create new CSV:</span>
+  <input type="text" id="new-csv-name" placeholder="filename.csv" style="width:160px"
+         onkeydown="if(event.key==='Enter') createNewCsv()">
+  <button class="primary" onclick="createNewCsv()">+ New CSV</button>
 </div>
 
 <div id="status"></div>
@@ -398,6 +403,18 @@ function uploadCsv() {
     } catch (err) { showError('Parse error: ' + err.message); }
   };
   reader.readAsText(inp.files[0], 'utf-8');
+}
+
+// ── Create a new, blank CSV ────────────────────────────────────────────────────
+function createNewCsv() {
+  const input = document.getElementById('new-csv-name');
+  let name = input.value.trim();
+  if (!name) return showError('Enter a name for the new CSV.');
+  if (!name.endsWith('.csv')) name += '.csv';
+  clearMessages();
+  applyRows([], name);
+  input.value = '';
+  setStatus('New CSV "' + name + '" created — add steps, then "Save to Server" to persist it.');
 }
 
 // ── CSV parser (handles RFC-4180 quoting) ─────────────────────────────────────
