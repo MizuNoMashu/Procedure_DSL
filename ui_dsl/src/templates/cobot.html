@@ -592,9 +592,7 @@
   function log(method, path, ok, data) {
     const box = document.getElementById('log-box');
     const cls = ok ? 'log-ok' : 'log-err';
-    const full = ok
-      ? (data.status || data.operation || JSON.stringify(data)).toString()
-      : (data.error || data.message || JSON.stringify(data)).toString();
+    const full = JSON.stringify(data);
     const line = document.createElement('div');
     line.style.cssText = 'word-break:break-all;white-space:pre-wrap;';
     const ts_span = document.createElement('span');

@@ -73,6 +73,28 @@
     .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
     .spacer { flex: 1; }
 
+    /* Status dot */
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #ccc;
+           flex-shrink: 0; display: inline-block; }
+    .dot.online  { background: #2a9d2a; }
+    .dot.busy    { background: #e07b00; }
+    .dot.offline { background: #bbb; }
+
+    /* Setup status bar */
+    #setup-status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 12px; background: #f4f4f4;
+      border: 1px solid #ddd; border-radius: 4px;
+      margin-bottom: 12px; font-size: 0.83rem;
+    }
+    #setup-status-text { flex: 1; }
+    #setup-result {
+      font-size: 0.78rem; margin-top: 8px; min-height: 1.2em;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    #setup-result.ok  { color: #1a6630; }
+    #setup-result.err { color: #c00; }
+
     /* Msg */
     #msg { font-size: 0.82rem; padding: 7px 12px; border-radius: 4px;
            margin-bottom: 12px; display: none; }
@@ -241,6 +263,45 @@
 <h1>DSL for Cobot</h1>
 <div id="msg"></div>
 
+<!-- ── Robot Setup ──────────────────────────────────────────────────────── -->
+<div class="panel">
+  <h3>Robot Setup</h3>
+
+  <!-- Status bar -->
+  <div id="setup-status-bar">
+    <div class="dot offline" id="setup-dot"></div>
+    <span id="setup-status-text">Checking cobot service…</span>
+    <button class="sm" onclick="checkCobotStatus()" style="margin-left:auto;">Refresh</button>
+  </div>
+
+  <!-- Connection form -->
+  <div class="row" style="flex-wrap:wrap">
+    <div class="col">
+      <label>Robot IP</label>
+      <input type="text" id="s-ip" value="172.16.0.3" style="width:145px">
+    </div>
+    <div class="col">
+      <label>Username</label>
+      <input type="text" id="s-user" value="fixed_arm" style="width:115px">
+    </div>
+    <div class="col">
+      <label>Password</label>
+      <input type="password" id="s-pass" placeholder="password" style="width:115px">
+    </div>
+    <div class="col">
+      <label>Owner <span style="color:#aaa;font-size:0.72rem">(token)</span></label>
+      <input type="text" id="s-owner" value="franka-backend" style="width:130px">
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:10px;flex-wrap:wrap">
+    <button class="success" onclick="setupPrepareAndConnect()">&#9889; Prepare &amp; Connect</button>
+    <button class="primary" onclick="setupConnectDesk()">Connect Desk only</button>
+    <button class="sm danger" onclick="setupDisconnect()">Disconnect</button>
+  </div>
+  <div id="setup-result"></div>
+</div>
+
 <!-- ── Load DSL ─────────────────────────────────────────────────────────── -->
 <div class="panel">
   <h3>Load Procedure DSL</h3>
@@ -357,6 +418,82 @@
 </div>
 
 <script>
+// ── Robot Setup ────────────────────────────────────────────────────────────
+async function cobotFetch(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch('/cobot-proxy/' + path, opts);
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, data };
+}
+
+function setSetupResult(text, ok) {
+  const el = document.getElementById('setup-result');
+  el.textContent = text;
+  el.className = ok ? 'ok' : 'err';
+}
+
+async function checkCobotStatus() {
+  try {
+    const { ok, data } = await cobotFetch('GET', 'health');
+    const connected = data.connected ?? false;
+    const busy = data.busy ?? false;
+    document.getElementById('setup-dot').className =
+      'dot ' + (connected ? (busy ? 'busy' : 'online') : 'offline');
+    document.getElementById('setup-status-text').textContent = connected
+      ? (busy ? 'Robot busy' : `Robot connected — ${data.robot_ip || ''} (${data.mode || ''})`)
+      : 'Robot not connected';
+  } catch(e) {
+    document.getElementById('setup-dot').className = 'dot offline';
+    document.getElementById('setup-status-text').textContent = 'Cobot service unreachable';
+  }
+}
+
+function deskConnectBody() {
+  return {
+    robot_ip: document.getElementById('s-ip').value.trim(),
+    username:  document.getElementById('s-user').value.trim(),
+    password:  document.getElementById('s-pass').value,
+    owner:     document.getElementById('s-owner').value.trim() || 'franka-backend',
+  };
+}
+
+async function setupConnectDesk() {
+  try {
+    const { ok, data } = await cobotFetch('POST', 'api/desk/connect', deskConnectBody());
+    setSetupResult(ok ? `Desk connected — ${data.robot_ip || ''}` : (data.error || 'Connect failed'), ok);
+    checkCobotStatus();
+  } catch(e) { setSetupResult(e.message, false); }
+}
+
+async function setupPrepareAndConnect() {
+  setSetupResult('Connecting to Desk API…', true);
+  try {
+    const r1 = await cobotFetch('POST', 'api/desk/connect', deskConnectBody());
+    if (!r1.ok) { setSetupResult(r1.data.error || 'Desk connect failed', false); return; }
+    setSetupResult('Desk connected — unlocking joints, activating FCI, connecting robot…', true);
+    const r2 = await cobotFetch('POST', 'api/desk/prepare-and-connect');
+    setSetupResult(
+      r2.ok ? 'Robot ready — joints unlocked, FCI active, pylibfranka connected'
+             : (r2.data.error || 'Prepare failed'),
+      r2.ok
+    );
+    checkCobotStatus();
+  } catch(e) { setSetupResult(e.message, false); }
+}
+
+async function setupDisconnect() {
+  try {
+    await cobotFetch('POST', 'api/robot/disconnect');
+    await cobotFetch('POST', 'api/desk/disconnect');
+    setSetupResult('Disconnected', true);
+    checkCobotStatus();
+  } catch(e) { setSetupResult(e.message, false); }
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 let currentFile = null;
 let steps = [];
@@ -368,6 +505,7 @@ let execEditingOp = null; // {stepNum, opIdx} currently showing inline edit form
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 (async () => {
+  checkCobotStatus();
   await loadOpRegistry();
   await loadDslList();
 })();

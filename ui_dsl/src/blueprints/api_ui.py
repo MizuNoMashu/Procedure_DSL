@@ -166,17 +166,20 @@ def cobot_page():
     return render_template('cobot.html')
 
 
+_LONG_TIMEOUT_PATHS = {'api/desk/prepare-and-connect', 'api/desk/prepare-fci'}
+
 @api_ui_bp.route('/cobot-proxy/<path:path>', methods=['GET', 'POST', 'DELETE'])
 def cobot_proxy(path):
     """Transparent proxy to the cobot API service."""
     url = f'{_COBOT_URL}/{path}'
+    timeout = 120 if path in _LONG_TIMEOUT_PATHS else 30
     try:
         resp = _requests.request(
             method=request.method,
             url=url,
             json=request.get_json(silent=True) if request.method in ('POST',) else None,
             params=request.args,
-            timeout=30,
+            timeout=timeout,
         )
         return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
     except _requests.exceptions.ConnectionError:
