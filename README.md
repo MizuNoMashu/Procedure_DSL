@@ -37,6 +37,12 @@ Procedure_DSL/
 │   ├── Dockerfile
 │   └── docker-compose.yml   # for standalone use with network_mode: host (FCI)
 │
+├── moveit_api/               # MoveIt 2 planner for the Franka arm (planning only, see below)
+│   ├── moveit_client/        # srdf.py (SRDF discovery), interface.py (rclpy client)
+│   ├── routes.py              # /moveit/* blueprint
+│   ├── app.py
+│   └── Dockerfile
+│
 └── docker-compose.yml
 ```
 
@@ -48,15 +54,16 @@ Procedure_DSL/
 |-------------|------|----------------------------------------------|
 | `ui`        | 8000 | Editor, DSL generation, Cobot page           |
 | `extractor` | 8001 | LLM extraction (requires NVIDIA GPU)         |
-| `cobot`     | 5001 | Franka robot API (requires `./cobot/`)       |
+| `cobot`     | 5001 | Franka robot API — actuates the arm (requires `./cobot/`) |
+| `moveit`    | 5002 | MoveIt 2 motion **planner** for the Franka arm (plans only, never actuates) |
 
 ### Available configurations
 
 ```bash
-# Everything (default): UI + Extractor + Cobot
+# Everything (default): UI + Extractor + Cobot + MoveIt
 docker compose up --build
 
-# UI + Extractor (without cobot)
+# UI + Extractor (without cobot/moveit)
 docker compose up ui extractor --build
 
 # UI only (no GPU — for editing already-extracted CSV and DSL)
@@ -64,6 +71,12 @@ docker compose up ui --no-deps --build
 
 # UI + Cobot only (no GPU)
 docker compose up ui cobot --no-deps --build
+
+# Just the MoveIt planner
+docker compose up moveit --no-deps --build
+
+# UI + cobot + MoveIt
+docker compose up ui cobot moveit --no-deps --build
 ```
 
 > **Cobot note:** the `./cobot/` folder is not tracked by git. From the root of `Procedure_DSL/`, run:
@@ -84,6 +97,47 @@ docker compose up ui cobot --no-deps --build
 ## Cobot Integration
 
 The cobot component exposes a REST API to control the Franka robot arm during assembly procedures. For installation, configuration, and API reference, see the [cobot-assembly-components](https://github.com/MizuNoMashu/cobot-assembly-components) repository.
+
+---
+
+## MoveIt Integration (planner) + Cobot (actuator)
+
+`moveit_api` and `cobot` split planning and actuation into two separate services:
+
+- **`cobot`** is the only service that actually moves the robot. It holds the
+  live FCI connection (`pylibfranka`) — connect/disconnect and current state
+  are managed exactly as before, via the UI.
+- **`moveit_api`** only *plans*: given a joint/named/pose goal, it asks
+  MoveIt 2's `move_group` (collision checking + IK + OMPL) for a
+  collision-free trajectory and returns it as JSON. It never sends anything
+  to the robot, real or simulated — see [moveit_api/README.md](moveit_api/README.md)
+  for the full API and why (`moveit_py` was ruled out because
+  `franka_fr3_moveit_config` builds its MoveIt config by hand, not via
+  `MoveItConfigsBuilder`).
+
+Typical flow to move the arm using a MoveIt-planned, collision-free path:
+
+```
+1. GET  cobot:5001/api/robot/state              → real current joint positions
+2. POST moveit:5002/moveit/plan-pose (or plan-joint/plan-named)
+       body includes "start_joint_positions" = state from step 1
+       → returns trajectory.points (collision-free waypoints)
+3. POST cobot:5001/api/motion/execute-trajectory
+       body: {"waypoints": [p.positions for p in trajectory.points]}
+       → cobot executes each waypoint in sequence via pylibfranka
+```
+
+`moveit_api`'s own `move_group` runs against a **simulated** robot state when
+`USE_FAKE_HARDWARE=true` (the default), so it has no idea where the real arm
+actually is unless step 1's state is passed in as `start_joint_positions`.
+
+This flow is wired into the UI: the **Cobot page** (`/cobot`) has a "MoveIt
+Plan → Execute (cartesian pose)" panel — enter X/Y/Z and roll/pitch/yaw
+(sliders), hit **Plan** (proxies to `moveit_api` via `ui_dsl`'s
+`/moveit-proxy/*`, mirroring the existing `/cobot-proxy/*`), inspect the
+result, then **Execute on Cobot** to actually run it (with a confirm dialog,
+since this really moves the robot). The panel assumes joint order
+`fr3_joint1..7`, same as everywhere else this repo talks to the Franka arm.
 
 ---
 

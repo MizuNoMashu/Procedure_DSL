@@ -350,6 +350,60 @@
           <div class="result-line" id="rel-result"></div>
         </div>
 
+        <!-- MoveIt: plan a cartesian pose, then execute the planned trajectory on cobot -->
+        <div class="panel">
+          <h3>MoveIt Plan → Execute (cartesian pose)</h3>
+          <p style="font-size:0.72rem;color:#888;margin-bottom:8px">
+            moveit_api pianifica soltanto (IK + collision-aware, non muove nulla).
+            "Plan" legge lo stato reale da cobot, chiede il piano a moveit_api;
+            "Execute" manda i waypoint pianificati a cobot per l'esecuzione vera.
+          </p>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>X (m)</label>
+              <input type="number" id="mv-x" step="0.01" value="0.4" style="width:85px">
+            </div>
+            <div class="col">
+              <label>Y (m)</label>
+              <input type="number" id="mv-y" step="0.01" value="0.0" style="width:85px">
+            </div>
+            <div class="col">
+              <label>Z (m)</label>
+              <input type="number" id="mv-z" step="0.01" value="0.4" style="width:85px">
+            </div>
+          </div>
+          <div class="param-row">
+            <label>Roll</label>
+            <input type="range" id="mv-roll-s" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('mv-roll-s','mv-roll-n')">
+            <input type="number" class="param-num" id="mv-roll-n" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('mv-roll-n','mv-roll-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="param-row">
+            <label>Pitch</label>
+            <input type="range" id="mv-pitch-s" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('mv-pitch-s','mv-pitch-n')">
+            <input type="number" class="param-num" id="mv-pitch-n" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('mv-pitch-n','mv-pitch-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="param-row">
+            <label>Yaw</label>
+            <input type="range" id="mv-yaw-s" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('mv-yaw-s','mv-yaw-n')">
+            <input type="number" class="param-num" id="mv-yaw-n" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('mv-yaw-n','mv-yaw-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="param-row">
+            <label>Speed factor</label>
+            <input type="range" id="mv-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('mv-speed-s','mv-speed-n')">
+            <input type="number" class="param-num" id="mv-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('mv-speed-n','mv-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="margin-top:10px;gap:6px">
+            <button class="primary" onclick="planMoveItPose()">Plan</button>
+            <button class="primary" id="mv-execute-btn" style="background:#1a5c1a;border-color:#1a5c1a" disabled onclick="executePlannedTrajectory()">Execute on Cobot</button>
+          </div>
+          <div class="result-line" id="mv-plan-result"></div>
+          <div class="state-box" id="mv-plan-box"></div>
+        </div>
+
         <!-- Impedance -->
         <div class="panel">
           <h3>Impedance Control</h3>
@@ -635,6 +689,25 @@
     }
   }
 
+  // moveit_api proxy: pianifica soltanto, non muove mai nulla (vedi moveit_api/README.md)
+  const MOVEIT_PROXY = '/moveit-proxy';
+  async function mf(method, path, body) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    try {
+      const r = await fetch(`${MOVEIT_PROXY}/${path}`, opts);
+      const data = await r.json().catch(() => ({}));
+      log(method, `moveit/${path}`, r.ok, data);
+      return { ok: r.ok, data };
+    } catch(e) {
+      log(method, `moveit/${path}`, false, { error: e.message });
+      return { ok: false, data: { error: e.message } };
+    }
+  }
+
   function setResult(id, data, ok) {
     const el = document.getElementById(id);
     el.className = 'result-line ' + (ok ? 'ok' : 'err');
@@ -756,6 +829,68 @@
     });
     setResult('pp-result', data, ok);
   }
+  // Ordine articolare fr3_joint1..7, lo stesso assunto da moveit_api/README.md
+  // e da cobot's /api/motion/execute-trajectory (nessun endpoint espone i nomi
+  // per un gruppo definito via <chain> in SRDF, quindi qui è hardcoded).
+  const FR3_JOINT_NAMES = ['fr3_joint1','fr3_joint2','fr3_joint3','fr3_joint4','fr3_joint5','fr3_joint6','fr3_joint7'];
+
+  let _lastTrajectory = null;
+
+  function summarizePlan(data) {
+    if (!data) return {};
+    if (data.error) return data;
+    return {
+      success: data.success,
+      error_code: data.error_code,
+      error_name: data.error_name,
+      planning_time: data.planning_time,
+      num_waypoints: (data.trajectory && data.trajectory.points) ? data.trajectory.points.length : 0,
+    };
+  }
+
+  async function planMoveItPose() {
+    document.getElementById('mv-execute-btn').disabled = true;
+    _lastTrajectory = null;
+
+    // Stato REALE del robot da cobot (moveit_api da solo pianifica contro uno
+    // stato simulato quando USE_FAKE_HARDWARE=true, vedi i due README).
+    const stateResp = await cf('GET', 'api/robot/state');
+    if (!stateResp.ok || !stateResp.data.joint_positions) {
+      setResult('mv-plan-result', { error: 'Impossibile leggere lo stato reale da cobot (robot connesso?)' }, false);
+      return;
+    }
+    const start_joint_positions = {};
+    stateResp.data.joint_positions.forEach((v, i) => { start_joint_positions[FR3_JOINT_NAMES[i]] = v; });
+
+    const body = {
+      position: { x: n('mv-x'), y: n('mv-y'), z: n('mv-z') },
+      rpy: [n('mv-roll-n'), n('mv-pitch-n'), n('mv-yaw-n')],
+      speed_factor: n('mv-speed-n'),
+      start_joint_positions,
+    };
+    const { ok, data } = await mf('POST', 'moveit/plan-pose', body);
+
+    if (ok && data.success) {
+      _lastTrajectory = data.trajectory;
+      document.getElementById('mv-execute-btn').disabled = false;
+    }
+    setResult('mv-plan-result', ok ? summarizePlan(data) : data, ok && data.success);
+    showState('mv-plan-box', summarizePlan(data), ok && data.success, false);
+  }
+
+  async function executePlannedTrajectory() {
+    if (!_lastTrajectory) return;
+    const numPts = _lastTrajectory.points.length;
+    if (!confirm(`Eseguire su cobot la traiettoria pianificata (${numPts} waypoint)? Il robot si muoverà davvero.`)) return;
+
+    const waypoints = _lastTrajectory.points.map(p => p.positions);
+    const { ok, data } = await cf('POST', 'api/motion/execute-trajectory', {
+      waypoints,
+      speed_factor: n('mv-speed-n'),
+    });
+    setResult('mv-plan-result', data, ok);
+  }
+
   async function setCollisionBehavior() {
     const parse = id => {
       const v = document.getElementById(id).value.trim();

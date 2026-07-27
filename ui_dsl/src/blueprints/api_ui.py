@@ -22,6 +22,7 @@ api_ui_bp = Blueprint('api_ui', __name__)
 _SRC_DIR = Path(__file__).parent.parent
 _LLM_URL = os.environ.get('LLM_SERVICE_URL', 'http://llm:8001')
 _COBOT_URL = os.environ.get('COBOT_SERVICE_URL', 'http://cobot:5000')
+_MOVEIT_URL = os.environ.get('MOVEIT_SERVICE_URL', 'http://moveit:5000')
 
 
 @api_ui_bp.route('/health', methods=['GET'])
@@ -188,6 +189,28 @@ def cobot_proxy(path):
         return jsonify({"error": f"Cobot service unreachable at {_COBOT_URL}"}), 503
     except _requests.exceptions.Timeout:
         return jsonify({"error": "Cobot service timed out"}), 504
+    except Exception as e:
+        print(f"[PROXY ERROR] {request.method} /{path}: {type(e).__name__}: {e}")
+        return jsonify({"error": f"Proxy error: {str(e)}"}), 502
+
+
+@api_ui_bp.route('/moveit-proxy/<path:path>', methods=['GET', 'POST'])
+def moveit_proxy(path):
+    """Transparent proxy to the moveit_api service (planning only — see moveit_api/README.md)."""
+    url = f'{_MOVEIT_URL}/{path}'
+    try:
+        resp = _requests.request(
+            method=request.method,
+            url=url,
+            json=request.get_json(silent=True) if request.method == 'POST' else None,
+            params=request.args,
+            timeout=30,
+        )
+        return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
+    except _requests.exceptions.ConnectionError:
+        return jsonify({"error": f"MoveIt service unreachable at {_MOVEIT_URL}"}), 503
+    except _requests.exceptions.Timeout:
+        return jsonify({"error": "MoveIt service timed out"}), 504
     except Exception as e:
         print(f"[PROXY ERROR] {request.method} /{path}: {type(e).__name__}: {e}")
         return jsonify({"error": f"Proxy error: {str(e)}"}), 502

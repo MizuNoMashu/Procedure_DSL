@@ -7,6 +7,7 @@ services:
     environment:
       - LLM_SERVICE_URL=http://extractor:8001
       - COBOT_SERVICE_URL=http://cobot:5000
+      - MOVEIT_SERVICE_URL=http://moveit:5000
     volumes:
       - ./ui_dsl/src:/app/src
     ports:
@@ -45,4 +46,70 @@ services:
       memlock: -1
     ports:
       - "5001:5000"
+    restart: unless-stopped
+
+  moveit:
+
+    build:
+
+      context: ./moveit_api
+
+      dockerfile: Dockerfile
+
+    container_name: procedure-moveit
+
+    platform: linux/amd64
+
+    environment:
+
+      FRANKA_ROBOT_IP: ${FRANKA_ROBOT_IP:-172.16.0.3}
+
+      USE_FAKE_HARDWARE: ${USE_FAKE_HARDWARE:-true}
+
+      LOAD_GRIPPER: ${LOAD_GRIPPER:-true}
+
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-10}
+
+    privileged: true
+
+    cap_add:
+
+      - SYS_NICE
+
+      - IPC_LOCK
+
+    ulimits:
+
+      rtprio: 99
+
+      memlock: -1
+
+    ports:
+
+      - "5002:5000"
+
+    healthcheck:
+
+      test:
+
+        [
+
+          "CMD",
+
+          "python3",
+
+          "-c",
+
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000/ready', timeout=3)"
+
+        ]
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 12
+
+      start_period: 60s
+
     restart: unless-stopped
