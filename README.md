@@ -69,13 +69,13 @@ docker compose up ui extractor --build
 # UI only (no GPU — for editing already-extracted CSV and DSL)
 docker compose up ui --no-deps --build
 
-# UI + Cobot only (no GPU)
+# UI + Cobot only (no GPU; Cobot uses host networking for Franka FCI)
 docker compose up ui cobot --no-deps --build
 
 # Just the MoveIt planner
 docker compose up moveit --no-deps --build
 
-# UI + cobot + MoveIt
+# UI + cobot + MoveIt (Cobot uses host networking for Franka FCI)
 docker compose up ui cobot moveit --no-deps --build
 ```
 

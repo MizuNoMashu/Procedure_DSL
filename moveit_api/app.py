@@ -54,8 +54,8 @@ app.register_blueprint(moveit_bp)
 def get_ros_nodes() -> list[str]:
     """Restituisce i nomi completi dei nodi ROS visibili."""
     return sorted(
-        full_name
-        for _, _, full_name in ros_node.get_node_names_and_namespaces()
+        f"{namespace.rstrip('/')}/{node_name}"
+        for node_name, namespace in ros_node.get_node_names_and_namespaces()
     )
 
 

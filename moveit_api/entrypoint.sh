@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# ROS setup scripts reference optional variables while they are being sourced.
+set +u
 source /opt/ros/humble/setup.bash
 source /franka_ros2_ws/install/setup.bash
+set -u
 
 FRANKA_ROBOT_IP="${FRANKA_ROBOT_IP:-172.16.0.3}"
 USE_FAKE_HARDWARE="${USE_FAKE_HARDWARE:-true}"
