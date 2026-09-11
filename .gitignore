@@ -219,6 +219,7 @@ ui_dsl/src/output/*
 
 *.yml
 *.txt
+!moveit_api/requirements.txt
 
 cobot/*
 cobot
