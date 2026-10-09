@@ -343,11 +343,69 @@
             <input type="number" class="param-num" id="rel-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('rel-speed-n','rel-speed-s')">
             <span class="param-unit">0–1</span>
           </div>
+          <div class="param-row">
+            <label>Tolerance</label>
+            <input type="range" id="rel-tol-s" min="0.001" max="0.2" step="0.001" value="0.01" oninput="sync('rel-tol-s','rel-tol-n')">
+            <input type="number" class="param-num" id="rel-tol-n" min="0.001" max="0.2" step="0.001" value="0.01" oninput="sync('rel-tol-n','rel-tol-s')">
+            <span class="param-unit">rad</span>
+          </div>
           <div class="row" style="margin-top:10px;gap:6px">
             <button class="primary" onclick="moveRelative()">Move Relative</button>
             <button class="sm" onclick="zeroDeltas()">Zero All</button>
           </div>
           <div class="result-line" id="rel-result"></div>
+        </div>
+
+        <!-- Relative Cartesian displacement through cobot API -->
+        <div class="panel">
+          <h3>Move Relative (Cartesian)</h3>
+          <p style="font-size:0.72rem;color:#888;margin-bottom:8px">
+            Sposta il TCP rispetto alla posa cartesiana corrente. Traslazioni in metri,
+            rotazioni RPY in radianti.
+          </p>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>ΔX (m)</label>
+              <input type="number" id="cart-rel-dx" step="0.001" value="0" style="width:90px">
+            </div>
+            <div class="col">
+              <label>ΔY (m)</label>
+              <input type="number" id="cart-rel-dy" step="0.001" value="0" style="width:90px">
+            </div>
+            <div class="col">
+              <label>ΔZ (m)</label>
+              <input type="number" id="cart-rel-dz" step="0.001" value="0" style="width:90px">
+            </div>
+            <div class="col">
+              <label>ΔRoll (rad)</label>
+              <input type="number" id="cart-rel-droll" step="0.01" value="0" style="width:100px">
+            </div>
+            <div class="col">
+              <label>ΔPitch (rad)</label>
+              <input type="number" id="cart-rel-dpitch" step="0.01" value="0" style="width:100px">
+            </div>
+            <div class="col">
+              <label>ΔYaw (rad)</label>
+              <input type="number" id="cart-rel-dyaw" step="0.01" value="0" style="width:100px">
+            </div>
+          </div>
+          <div class="param-row" style="margin-top:8px">
+            <label>Speed factor</label>
+            <input type="range" id="cart-rel-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('cart-rel-speed-s','cart-rel-speed-n')">
+            <input type="number" class="param-num" id="cart-rel-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('cart-rel-speed-n','cart-rel-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>Position tolerance (m)</label>
+              <input type="number" id="cart-rel-tolerance" min="0.001" step="0.001" value="0.01" style="width:120px">
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" onclick="moveRelativeCartesian()">Move Relative Cartesian</button>
+            <button class="sm" onclick="zeroCartesianDeltas()">Zero All</button>
+          </div>
+          <div class="result-line" id="cart-rel-result"></div>
         </div>
 
         <!-- Single Cartesian motion through cobot API -->
@@ -456,6 +514,15 @@
             <input type="range" id="mv-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('mv-speed-s','mv-speed-n')">
             <input type="number" class="param-num" id="mv-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('mv-speed-n','mv-speed-s')">
             <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>Durata per waypoint MoveIt (s)</label>
+              <input type="number" id="mv-segment-duration" min="0.5" max="30" step="0.1" value="0.7" style="width:145px">
+            </div>
+            <span style="font-size:0.72rem;color:#9a5a00;max-width:420px">
+              Usata solo per eseguire traiettorie MoveIt; ridurla aumenta la velocità e può causare arresti per limiti/collisioni. Prova gradualmente in condizioni sicure.
+            </span>
           </div>
           <div class="row" style="margin-top:10px;gap:6px">
             <button class="primary" onclick="planMoveItPose()">Plan</button>
@@ -913,8 +980,44 @@
     const { ok, data } = await cf('POST', 'api/motion-position-control/move-relative', {
       deltas: getJointVals('jd'),
       speed_factor: n('rel-speed-n'),
+      tolerance: n('rel-tol-n'),
     });
     setResult('rel-result', data, ok);
+  }
+  function zeroCartesianDeltas() {
+    ['dx', 'dy', 'dz', 'droll', 'dpitch', 'dyaw'].forEach(axis => {
+      document.getElementById(`cart-rel-${axis}`).value = 0;
+    });
+  }
+  async function moveRelativeCartesian() {
+    const deltaFields = ['dx', 'dy', 'dz', 'droll', 'dpitch', 'dyaw'];
+    const deltas = {};
+    for (const axis of deltaFields) {
+      const field = `cart-rel-${axis}`;
+      const value = n(field);
+      if (!Number.isFinite(value)) {
+        setResult('cart-rel-result', { error: `${axis}: inserire un delta numerico valido.` }, false);
+        return;
+      }
+      deltas[axis] = value;
+    }
+    const speedFactor = n('cart-rel-speed-n');
+    const tolerance = n('cart-rel-tolerance');
+    if (!Number.isFinite(speedFactor) || speedFactor < 0.01 || speedFactor > 1) {
+      setResult('cart-rel-result', { error: 'Speed factor deve essere compreso tra 0.01 e 1.' }, false);
+      return;
+    }
+    if (!Number.isFinite(tolerance) || tolerance <= 0) {
+      setResult('cart-rel-result', { error: 'Position tolerance deve essere maggiore di zero.' }, false);
+      return;
+    }
+
+    const { ok, data } = await cf('POST', 'api/motion-cartesian/move-relative', {
+      ...deltas,
+      speed_factor: speedFactor,
+      tolerance,
+    });
+    setResult('cart-rel-result', data, ok);
   }
   async function moveCartesianPose() {
     const fields = [
@@ -1011,12 +1114,18 @@
   async function executePlannedTrajectory() {
     if (!_lastTrajectory) return;
     const numPts = _lastTrajectory.points.length;
-    if (!confirm(`Eseguire su cobot la traiettoria pianificata (${numPts} waypoint)? Il robot si muoverà davvero.`)) return;
+    const segmentDuration = n('mv-segment-duration');
+    if (!Number.isFinite(segmentDuration) || segmentDuration < 0.5 || segmentDuration > 30) {
+      setResult('mv-plan-result', { error: 'La durata per waypoint deve essere compresa tra 0.5 e 30 secondi.' }, false);
+      return;
+    }
+    if (!confirm(`Eseguire su cobot la traiettoria pianificata (${numPts} waypoint, ${segmentDuration} s/waypoint)? Il robot si muoverà davvero.`)) return;
 
     const waypoints = _lastTrajectory.points.map(p => p.positions);
     const { ok, data } = await cf('POST', 'api/motion/execute-trajectory', {
       waypoints,
       speed_factor: n('mv-speed-n'),
+      segment_duration: segmentDuration,
     });
     setResult('mv-plan-result', data, ok);
   }
@@ -1069,7 +1178,7 @@
     return Object.fromEntries(data.joint_positions.map((value, i) => [FR3_JOINT_NAMES[i], value]));
   }
 
-  async function planAndExecuteWorkflowPose(position, label, speedFactor, rpy) {
+  async function planAndExecuteWorkflowPose(position, label, speedFactor, rpy, segmentDuration) {
     setMoveItWorkflowStatus(`${label}: lettura stato reale e pianificazione MoveIt…`);
     const start_joint_positions = await readRealJointPositions();
     const planned = await mf('POST', 'moveit/plan-pose', {
@@ -1104,6 +1213,7 @@
     const execution = await cf('POST', 'api/motion/execute-trajectory', {
       waypoints,
       speed_factor: speedFactor,
+      segment_duration: segmentDuration,
     });
     if (!execution.ok) throw new Error(execution.data.error || `Il cobot ha rifiutato la traiettoria per ${label}.`);
     await waitForCobotIdle();
@@ -1128,6 +1238,7 @@
     let objectWidth;
     let graspForce;
     let speedFactor;
+    let segmentDuration;
     let startRpy;
     let endRpy;
     try {
@@ -1144,6 +1255,7 @@
       objectWidth = workflowNumber('pp-object-width', 'Larghezza oggetto');
       graspForce = workflowNumber('pp-object-force', 'Forza grasp');
       speedFactor = workflowNumber('mv-speed-n', 'Speed factor');
+      segmentDuration = workflowNumber('mv-segment-duration', 'Durata per waypoint MoveIt');
       startRpy = [
         workflowNumber('pp-start-roll', 'Roll presa'),
         workflowNumber('pp-start-pitch', 'Pitch presa'),
@@ -1157,6 +1269,7 @@
       if (objectWidth < 0 || objectWidth > 80) throw new Error('La larghezza deve essere compresa tra 0 e 80 mm.');
       if (graspForce <= 0 || graspForce > 140) throw new Error('La forza deve essere maggiore di 0 e non superiore a 140 N.');
       if (speedFactor < 0.01 || speedFactor > 1) throw new Error('Lo speed factor deve essere compreso tra 0.01 e 1.');
+      if (segmentDuration < 0.5 || segmentDuration > 30) throw new Error('La durata per waypoint deve essere compresa tra 0.5 e 30 secondi.');
       if ([...startRpy, ...endRpy].some(angle => angle < -Math.PI || angle > Math.PI)) {
         throw new Error('Roll, Pitch e Yaw devono essere compresi tra -π e π rad.');
       }
@@ -1171,6 +1284,7 @@
       `Destinazione: [${endPosition.x}, ${endPosition.y}, ${endPosition.z}] m\n` +
       `Orientamento presa RPY: [${startRpy.join(', ')}] rad\n` +
       `Orientamento destinazione RPY: [${endRpy.join(', ')}] rad\n` +
+      `Durata MoveIt: ${segmentDuration} s/waypoint\n` +
       `Grasp: ${objectWidth} mm, ${graspForce} N\n` +
       'Al termine il gripper rilascerà l’oggetto.'
     );
@@ -1191,7 +1305,7 @@
         throw new Error(opening.data.error || 'Inizializzazione/apertura del gripper non riuscita.');
       }
 
-      await planAndExecuteWorkflowPose(startPosition, 'Fase 2/6: raggiungimento posizione di presa', speedFactor, startRpy);
+      await planAndExecuteWorkflowPose(startPosition, 'Fase 2/6: raggiungimento posizione di presa', speedFactor, startRpy, segmentDuration);
 
       setMoveItWorkflowStatus('Fase 3/6: presa oggetto con il gripper…');
       const grasp = await cf('POST', 'api/gripper/grasp', {
@@ -1207,7 +1321,7 @@
         throw new Error('Presa non confermata dallo stato del gripper; spostamento alla destinazione annullato.');
       }
 
-      await planAndExecuteWorkflowPose(endPosition, 'Fase 4/6: trasporto alla posizione finale', speedFactor, endRpy);
+      await planAndExecuteWorkflowPose(endPosition, 'Fase 4/6: trasporto alla posizione finale', speedFactor, endRpy, segmentDuration);
 
       setMoveItWorkflowStatus('Fase 5/6: apertura del gripper e rilascio oggetto…');
       const release = await cf('POST', 'api/gripper/release');
