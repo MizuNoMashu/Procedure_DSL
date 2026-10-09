@@ -46,6 +46,9 @@
     .pipeline-empty { text-align:center; border:1px dashed #c4d2d5; border-radius:10px; padding:28px 16px; color:#75858a; }
     .step-card { border:1px solid #d7e1e3; border-radius:10px; margin:10px 0; overflow:hidden; background:#fff; }
     .step-head { display:flex; align-items:center; gap:9px; padding:10px 12px; background:#f6f9fa; border-bottom:1px solid #e7edef; }
+    .step-card.running { border-color:#d99a32; box-shadow:0 0 0 2px #d99a3222; }
+    .step-card.completed { border-color:#7ab995; }
+    .step-card.failed { border-color:#d77a70; }
     .step-index { display:grid; place-items:center; width:27px; height:27px; border-radius:8px; background:#dff0f2; color:#146775; font-weight:700; font-size:.8rem; }
     .step-title { font-weight:650; font-size:.86rem; }
     .step-body { padding:12px; }
@@ -54,6 +57,19 @@
     .step-fields .col.wide { min-width:190px; }
     .mini-sep { border:0; border-top:1px solid #edf0f1; margin:12px 0; }
     .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .live-grid { display:grid; grid-template-columns:repeat(3,minmax(90px,1fr)); gap:7px; margin-top:10px; }
+    .live-cell { border:1px solid #e5ecee; border-radius:8px; padding:8px; background:#f8fafb; }
+    .live-label { color:#77878c; text-transform:uppercase; font-size:.66rem; letter-spacing:.04em; }
+    .live-value { font-size:.86rem; font-weight:650; margin-top:4px; font-variant-numeric:tabular-nums; }
+    .live-joints { display:grid; grid-template-columns:repeat(7,minmax(42px,1fr)); gap:4px; margin-top:8px; }
+    .live-joint { text-align:center; background:#f3f6f7; border-radius:5px; padding:5px 2px; font-size:.68rem; }
+    .live-joint b { display:block; margin-top:3px; font-size:.74rem; }
+    .activity-list { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+    .activity-item { display:flex; align-items:center; gap:8px; padding:7px 9px; background:#f8fafb; border-radius:7px; font-size:.78rem; }
+    .activity-item.active { background:#fff7e8; color:#855613; }
+    .activity-item.ok { background:#edf8f0; color:#287447; }
+    .activity-item.error { background:#fff0ee; color:#a2372d; }
+    .activity-mark { width:19px; text-align:center; font-weight:700; }
     #run-state { font-weight:600; }
     #gripper-state, #gripper-errors { max-height:155px; overflow:auto; white-space:pre-wrap; font: .76rem ui-monospace, monospace; background:#f6f8f9; border-radius:8px; padding:9px; margin-top:9px; }
     @media (max-width:800px) { .grid { grid-template-columns:1fr; } nav { overflow-x:auto; } main { padding:17px 12px 40px; } }
@@ -74,6 +90,14 @@
       <section class="panel">
         <div class="panel-head"><h2>Connessione cobot</h2><button class="small" onclick="refreshRobotStatus()">Aggiorna</button></div>
         <div class="status"><span id="robot-dot" class="dot"></span><span id="robot-status">Verifico servizio…</span><span id="robot-mode" class="hint"></span></div>
+        <p id="robot-operation" class="hint" aria-live="polite">Nessuna operazione in corso.</p>
+        <div class="live-grid">
+          <div class="live-cell"><div class="live-label">TCP X (m)</div><div class="live-value" id="builder-tcp-x">—</div></div>
+          <div class="live-cell"><div class="live-label">TCP Y (m)</div><div class="live-value" id="builder-tcp-y">—</div></div>
+          <div class="live-cell"><div class="live-label">TCP Z (m)</div><div class="live-value" id="builder-tcp-z">—</div></div>
+        </div>
+        <div id="builder-live-joints" class="live-joints"></div>
+        <p id="builder-telemetry-note" class="hint" style="margin-top:7px">Aggiornamento live in attesa.</p>
         <div class="row">
           <div class="col"><label for="robot-ip">IP robot</label><input id="robot-ip" type="text" value="172.16.0.3"></div>
           <label><input id="enforce-rt" type="checkbox" checked> Realtime</label>
@@ -128,6 +152,11 @@
       <div class="panel-head"><div><h2>La tua pipeline</h2><p id="step-count" class="hint">0 operazioni</p></div></div>
       <div id="pipeline-empty" class="pipeline-empty">Aggiungi un movimento o un comando del gripper per iniziare.</div>
       <div id="pipeline-steps"></div>
+      <div id="pipeline-activity" hidden>
+        <hr class="mini-sep">
+        <h3>Avanzamento sequenza</h3>
+        <div id="pipeline-activity-list" class="activity-list"></div>
+      </div>
       <div id="pipeline-actions" class="toolbar" hidden style="margin-top:15px">
         <button id="run-pipeline" class="primary" onclick="runPipeline()">▶ Esegui pipeline</button>
         <button onclick="clearPipeline()">Svuota</button>
@@ -158,6 +187,13 @@
   let steps = [];
   let nextId = 1;
   let running = false;
+  let activeStepId = null;
+  let telemetryPolling = false;
+  let previousBusy = false;
+  const activityState = new Map();
+  document.getElementById('builder-live-joints').innerHTML = JOINT_LABELS.map((label, index) =>
+    `<div class="live-joint">J${index + 1}<b id="builder-q-${index}">—</b></div>`
+  ).join('');
 
   function log(method, path, ok, data) {
     console.info(`[${new Date().toLocaleTimeString()}] ${method} ${path} ${ok ? 'OK' : 'ERR'}`, data);
@@ -180,12 +216,59 @@
   const moveit = (method, path, body) => requestJson(MOVEIT_PROXY, method, path, body);
 
   async function refreshRobotStatus() {
-    const { ok, data } = await cobot('GET', 'health');
+    const { ok, data } = await cobot('GET', 'api/robot/status');
     const online = ok && data.connected;
     const dot = document.getElementById('robot-dot');
-    dot.className = `dot ${online ? (data.busy ? 'busy' : 'online') : ''}`;
-    document.getElementById('robot-status').textContent = !ok ? 'Servizio cobot non raggiungibile' : (online ? (data.busy ? 'Robot occupato' : 'Robot connesso') : 'Robot non connesso');
+    const faulted = data.mode === 'error_locked';
+    dot.className = `dot ${faulted ? 'busy' : (online ? (data.busy ? 'busy' : 'online') : '')}`;
+    document.getElementById('robot-status').textContent = !ok ? 'Servizio cobot non raggiungibile' : (!online ? 'Robot non connesso' : (faulted ? 'Robot in ERROR_LOCKED' : (data.busy ? 'Robot occupato' : 'Robot connesso')));
     document.getElementById('robot-mode').textContent = data.mode || '';
+    document.getElementById('robot-operation').textContent = data.busy
+      ? `Operazione attiva: ${data.current_operation || activeStepTitle() || 'operazione hardware'}${Number.isFinite(data.progress) ? ` · ${data.progress.toFixed(1)}%` : ''}`
+      : (data.last_operation ? `Ultima operazione: ${data.last_operation.operation} — ${data.last_operation.success ? 'completata' : 'fallita'}${data.last_operation.error ? ` (${data.last_operation.error})` : ''}` : 'Nessuna operazione in corso.');
+    return { ok, data };
+  }
+
+  function activeStepTitle() {
+    const step = steps.find(item => item.id === activeStepId);
+    return step ? TYPE_INFO[step.type].title : '';
+  }
+
+  async function refreshBuilderTelemetry() {
+    if (telemetryPolling) return;
+    telemetryPolling = true;
+    try {
+      const status = await refreshRobotStatus();
+      if (!status.ok || !status.data.connected) {
+        setLiveRobotState(null);
+        document.getElementById('builder-telemetry-note').textContent = status.ok ? 'Robot disconnesso.' : (status.data.error || 'Servizio cobot non raggiungibile.');
+        return;
+      }
+      const state = await cobot('GET', 'api/robot/state');
+      if (!state.ok) {
+        document.getElementById('builder-telemetry-note').textContent = status.data.busy
+          ? `Operazione attiva: ${status.data.current_operation || activeStepTitle() || 'in corso'} · mantengo l’ultima posizione letta finché non arriva il prossimo campione.`
+          : (state.data.error || 'Lettura telemetria non disponibile; valori mostrati non aggiornati.');
+        return;
+      }
+      setLiveRobotState(state.data);
+      document.getElementById('builder-telemetry-note').textContent = `Telemetria aggiornata ${new Date().toLocaleTimeString()}${status.data.busy ? ' · movimento attivo' : ''}`;
+    } finally {
+      telemetryPolling = false;
+    }
+  }
+
+  function setLiveRobotState(state) {
+    const positions = state && (state.joint_positions || state.q_measured);
+    JOINT_LABELS.forEach((_, index) => {
+      const value = Array.isArray(positions) ? positions[index] : undefined;
+      document.getElementById(`builder-q-${index}`).textContent = Number.isFinite(value) ? value.toFixed(3) : '—';
+    });
+    const tcp = state && (state.cartesian_pose?.position || state.tcp_position);
+    ['x','y','z'].forEach(axis => {
+      const value = tcp && tcp[axis];
+      document.getElementById(`builder-tcp-${axis}`).textContent = Number.isFinite(value) ? value.toFixed(4) : '—';
+    });
   }
   async function connectRobot() {
     if (running) return;
@@ -326,10 +409,12 @@
     list.innerHTML = '';
     document.getElementById('pipeline-empty').hidden = steps.length > 0;
     document.getElementById('pipeline-actions').hidden = steps.length === 0;
+    document.getElementById('pipeline-activity').hidden = steps.length === 0;
     document.getElementById('step-count').textContent = `${steps.length} operazioni`;
     steps.forEach((step, index) => {
       const card = document.createElement('article');
       card.className = 'step-card';
+      if (activityState.get(step.id)) card.classList.add(activityState.get(step.id));
       card.dataset.stepId = step.id;
       card.innerHTML = `<header class="step-head"><span class="step-index">${index + 1}</span><span class="step-title">${TYPE_INFO[step.type].title}</span><span class="spacer"></span><button class="small" data-action="up" ${index === 0 ? 'disabled' : ''} title="Sposta su">↑</button><button class="small" data-action="down" ${index === steps.length - 1 ? 'disabled' : ''} title="Sposta giù">↓</button><button class="small danger" data-action="remove">Rimuovi</button></header><div class="step-body"><div class="row"><div class="col"><label>Tipo operazione</label><select data-action="type">${(TYPE_INFO[step.type].kind === 'move' ? MOVE_TYPES : GRIPPER_TYPES).map(type => `<option value="${type}" ${step.type === type ? 'selected' : ''}>${TYPE_INFO[type].title}</option>`).join('')}</select></div></div>${paramsMarkup(step)}<div class="result" data-step-result></div></div>`;
       card.addEventListener('change', event => {
@@ -358,6 +443,17 @@
     document.querySelectorAll('#pipeline-steps input').forEach(input => input.disabled = running);
     document.querySelectorAll('#pipeline-steps select, #pipeline-steps button').forEach(control => control.disabled = running || control.disabled);
     document.getElementById('run-pipeline').disabled = running || steps.length === 0;
+    renderPipelineActivity();
+  }
+  function renderPipelineActivity() {
+    const activityList = document.getElementById('pipeline-activity-list');
+    if (!activityList) return;
+    activityList.innerHTML = steps.map((step, index) => {
+      const state = activityState.get(step.id) || 'pending';
+      const marker = state === 'completed' ? '✓' : (state === 'running' ? '●' : (state === 'failed' ? '✗' : '○'));
+      const label = TYPE_INFO[step.type]?.title || step.type;
+      return `<div class="activity-item ${state}"><span class="activity-mark">${marker}</span><span>${index + 1}. ${label}</span>${step.id === activeStepId ? '<span class="spacer">IN ESECUZIONE</span>' : ''}</div>`;
+    }).join('');
   }
   function clearPipeline() { if (running) return; steps = []; renderPipeline(); setPipelineResult(''); }
   function setPipelineResult(message, type = '') {
@@ -366,11 +462,15 @@
     el.className = `result ${type}`;
   }
   function stepResult(step, text, ok) {
+    activityState.set(step.id, ok ? 'completed' : 'failed');
     const card = document.querySelector(`[data-step-id="${step.id}"]`);
     if (!card) return;
+    card.classList.remove('running', 'completed', 'failed');
+    card.classList.add(ok ? 'completed' : 'failed');
     const el = card.querySelector('[data-step-result]');
     el.textContent = text;
     el.className = `result ${ok ? 'good' : 'error'}`;
+    renderPipelineActivity();
   }
   function paramsFor(step) {
     readParamsFromDom();
@@ -381,26 +481,41 @@
     }
     return params;
   }
-  async function waitForCobotIdle(timeoutMs = 240000) {
+  async function waitForCobotIdle(timeoutMs = 240000, operationStartedAt = Date.now()) {
     const start = Date.now();
     let observedBusy = false;
+    let consecutiveIdle = 0;
+    // L'API risponde 202 dopo aver acquisito il lock. Se il movimento breve finisce
+    // prima del primo poll, due letture idle stabili sono comunque una conclusione valida.
+    await new Promise(resolve => setTimeout(resolve, 350));
     while (Date.now() - start < timeoutMs) {
       const { ok, data } = await cobot('GET', 'api/robot/status');
       if (!ok) throw new Error(data.error || 'Impossibile leggere lo stato del robot.');
       if (!data.connected) throw new Error('Robot disconnesso durante la pipeline.');
-      if (data.busy) observedBusy = true;
-      else if (observedBusy) {
-        if (data.mode === 'error_locked') throw new Error('Robot in ERROR_LOCKED al termine del movimento.');
-        return;
+      if (data.mode === 'error_locked') throw new Error('Robot in ERROR_LOCKED: controllare errori e Desk/FCI.');
+      if (data.busy) {
+        observedBusy = true;
+        consecutiveIdle = 0;
+        setPipelineResult(`Operazione in corso: ${data.current_operation || activeStepTitle() || 'attendo cobot'}${Number.isFinite(data.progress) ? ` · ${data.progress.toFixed(1)}%` : ''}`);
+      } else {
+        consecutiveIdle += 1;
+        if (consecutiveIdle >= 2 && (observedBusy || Date.now() - operationStartedAt >= 500)) {
+          const last = data.last_operation;
+          if (last && !last.success && last.completed_at && Date.parse(last.completed_at) >= operationStartedAt) {
+            throw new Error(last.error || `Operazione ${last.operation} terminata senza successo.`);
+          }
+          return;
+        }
       }
       await new Promise(resolve => setTimeout(resolve, 300));
     }
     throw new Error('Timeout attendendo la fine dell’operazione cobot.');
   }
   async function executeDirectMotion(endpoint, body) {
+    const operationStartedAt = Date.now();
     const response = await cobot('POST', endpoint, body);
     if (!response.ok) throw new Error(response.data.error || `Richiesta rifiutata (${endpoint}).`);
-    if (response.data.status === 'accepted') await waitForCobotIdle();
+    if (response.data.status === 'accepted') await waitForCobotIdle(240000, operationStartedAt);
     const status = await cobot('GET', 'api/robot/status');
     if (status.ok && status.data.mode === 'error_locked') throw new Error('Robot in ERROR_LOCKED: controllare errori e Desk/FCI.');
     return response.data;
@@ -428,9 +543,10 @@
     const names = trajectory.joint_names || [];
     if (!FR3_JOINT_NAMES.every(name => names.includes(name))) throw new Error(`Ordine/nomi giunti MoveIt incompatibili: ${names.join(', ')}`);
     const waypoints = points.map(point => FR3_JOINT_NAMES.map(name => point.positions[names.indexOf(name)]));
+    const operationStartedAt = Date.now();
     const execution = await cobot('POST', 'api/motion/execute-trajectory', { waypoints, speed_factor: params.speed_factor, segment_duration: params.segment_duration });
     if (!execution.ok) throw new Error(execution.data.error || 'Cobot ha rifiutato la traiettoria.');
-    await waitForCobotIdle();
+    await waitForCobotIdle(240000, operationStartedAt);
     return `${points.length} waypoint eseguiti (${params.segment_duration} s/waypoint)`;
   }
   async function executeGripper(step, params) {
@@ -442,10 +558,11 @@
       gripper_close: ['api/gripper/close', { speed: params.speed }],
     };
     const [endpoint, body] = paths[step.type];
+    const operationStartedAt = Date.now();
     const response = await cobot('POST', endpoint, body);
     if (!response.ok) throw new Error(response.data.error || `${endpoint} fallito.`);
     if (step.type === 'gripper_home') {
-      await waitForCobotIdle(30000);
+      await waitForCobotIdle(30000, operationStartedAt);
       const state = await cobot('GET', 'api/gripper/state');
       if (!state.ok || state.data.mode !== 'ready') throw new Error('Homing gripper non completato o gripper non in stato READY.');
     } else if (response.data.success !== true) throw new Error(`Operazione gripper ${step.type} non riuscita.`);
@@ -478,12 +595,18 @@
     const sequence = validated.map(({ step }, index) => `${index + 1}. ${TYPE_INFO[step.type].title}`).join('\n');
     if (!confirm(`Eseguire questa pipeline? Il cobot si muoverà realmente.\n\n${sequence}`)) return;
     running = true;
+    activityState.clear();
+    validated.forEach(({ step }) => activityState.set(step.id, 'pending'));
+    renderPipelineActivity();
     renderPipeline();
     setPipelineResult('Pipeline in esecuzione…', '');
     try {
       for (let i = 0; i < validated.length; i++) {
         const { step, params } = validated[i];
         const title = TYPE_INFO[step.type].title;
+        activeStepId = step.id;
+        activityState.set(step.id, 'running');
+        renderPipeline();
         setPipelineResult(`Operazione ${i + 1}/${validated.length}: ${title}`);
         try {
           const result = TYPE_INFO[step.type].kind === 'gripper'
@@ -502,6 +625,7 @@
       setPipelineResult(`Pipeline interrotta: ${error.message}`, 'error');
     } finally {
       running = false;
+      activeStepId = null;
       renderPipeline();
       refreshRobotStatus();
     }
@@ -516,8 +640,8 @@
       default: throw new Error('Tipo di movimento non supportato.');
     }
   }
-  refreshRobotStatus();
-  setInterval(refreshRobotStatus, 3000);
+  refreshBuilderTelemetry();
+  setInterval(refreshBuilderTelemetry, 1000);
   renderPipeline();
 </script>
 </body>
