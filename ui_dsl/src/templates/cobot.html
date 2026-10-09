@@ -90,11 +90,23 @@
     .dot.online { background: #2a9d2a; }
     .dot.busy   { background: #e07b00; }
     .dot.offline { background: #bbb; }
+    .dot.fault { background:#c00; }
     #status-text { flex: 1; }
     .badge {
       font-size: 0.72rem; background: #eee;
       border: 1px solid #ccc; border-radius: 10px; padding: 1px 8px;
     }
+    .telemetry-grid { display:grid; grid-template-columns:repeat(3,minmax(100px,1fr)); gap:8px; margin-top:10px; }
+    .telemetry-cell { border:1px solid #eee; border-radius:4px; background:#fafafa; padding:8px 10px; }
+    .telemetry-label { color:#888; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; }
+    .telemetry-value { font-size:.9rem; font-weight:bold; margin-top:4px; font-variant-numeric:tabular-nums; }
+    #live-operation { flex:1; font-weight:bold; }
+    #live-progress { width:150px; height:9px; accent-color:#1a6630; }
+    #live-joints { display:grid; grid-template-columns:repeat(7,minmax(55px,1fr)); gap:5px; margin-top:10px; }
+    .live-joint { background:#f5f5f5; border-radius:3px; text-align:center; padding:6px 3px; font-size:.72rem; }
+    .live-joint b { display:block; font-size:.78rem; margin-top:3px; }
+    #telemetry-note { font-size:.72rem; color:#888; margin-top:8px; }
+    @media (max-width:850px) { #live-joints { grid-template-columns:repeat(4,minmax(55px,1fr)); } }
 
     /* ── Panels ── */
     .panel { border: 1px solid #ddd; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
@@ -150,6 +162,7 @@
   <a href="/">Extractor</a>
   <a href="/editor">Editor</a>
   <a href="/cobot" class="active">Cobot</a>
+  <a href="/trajectory-builder">Trajectory Builder</a>
   <a href="/dsl-cobot">DSL Cobot</a>
   <a href="/dsl-manage">DSL Manage</a>
 </nav>
@@ -168,10 +181,29 @@
       <span class="badge" id="busy-badge" style="display:none;background:#fff3e0;border-color:#e07b00;color:#b05a00">BUSY</span>
       <button class="sm" onclick="refreshStatus()">Refresh</button>
       <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:0.78rem">
-        <input type="checkbox" id="autopoll" onchange="toggleAutopoll()"> Auto-refresh ogni
-        <input type="number" id="poll-interval" value="3" min="1" max="60" step="1"
+        <input type="checkbox" id="autopoll" checked onchange="toggleAutopoll()"> Auto-refresh ogni
+        <input type="number" id="poll-interval" value="2" min="1" max="60" step="1"
                style="width:46px;padding:2px 4px;font-size:0.78rem" onchange="toggleAutopoll()"> s
       </label>
+    </div>
+
+    <!-- ── Live robot state and operation telemetry ── -->
+    <div class="panel" id="live-telemetry-panel">
+      <div class="row" style="margin-top:0">
+        <h2 style="margin:0">Stato cobot in tempo reale</h2>
+        <span class="spacer"></span>
+        <span id="live-mode" class="badge">—</span>
+        <span id="live-operation">In attesa</span>
+        <progress id="live-progress" max="100" value="0" hidden></progress>
+        <span id="live-progress-text" class="badge" hidden></span>
+      </div>
+      <div class="telemetry-grid">
+        <div class="telemetry-cell"><div class="telemetry-label">TCP X (m)</div><div class="telemetry-value" id="live-x">—</div></div>
+        <div class="telemetry-cell"><div class="telemetry-label">TCP Y (m)</div><div class="telemetry-value" id="live-y">—</div></div>
+        <div class="telemetry-cell"><div class="telemetry-label">TCP Z (m)</div><div class="telemetry-value" id="live-z">—</div></div>
+      </div>
+      <div id="live-joints"></div>
+      <div id="telemetry-note" aria-live="polite">Lettura posizione, giunti, modalità e progresso dell’operazione.</div>
     </div>
 
     <!-- ── Connection ── -->
@@ -532,6 +564,34 @@
           <div class="state-box" id="mv-plan-box"></div>
         </div>
 
+        <!-- MoveIt joint-space planning and execution -->
+        <div class="panel">
+          <h3>MoveIt Plan → Execute (posizione articolare)</h3>
+          <p style="font-size:0.72rem;color:#888;margin-bottom:8px">
+            Inserisci i 7 giunti target in radianti. Plan legge la configurazione reale corrente,
+            pianifica il percorso articolare con MoveIt e permette poi di eseguirlo sul cobot.
+          </p>
+          <div id="mv-joint-rows"></div>
+          <div class="param-row" style="margin-top:8px">
+            <label>Speed factor</label>
+            <input type="range" id="mv-joint-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('mv-joint-speed-s','mv-joint-speed-n')">
+            <input type="number" class="param-num" id="mv-joint-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('mv-joint-speed-n','mv-joint-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>Durata per waypoint (s)</label>
+              <input type="number" id="mv-joint-segment-duration" min="0.5" max="30" step="0.1" value="0.7" style="width:145px">
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px;gap:6px">
+            <button class="primary" onclick="planMoveItJoints()">Plan joints</button>
+            <button class="primary" id="mv-joint-execute-btn" style="background:#1a5c1a;border-color:#1a5c1a" disabled onclick="executeJointPlannedTrajectory()">Execute on Cobot</button>
+          </div>
+          <div class="result-line" id="mv-joint-plan-result"></div>
+          <div class="state-box" id="mv-joint-plan-box"></div>
+        </div>
+
         <!-- MoveIt-guided grasp and transport workflow -->
         <div class="panel">
           <h3>Pick &amp; Place guidato da MoveIt</h3>
@@ -761,6 +821,15 @@
     { id:'J7', name:'Flange',     min:-2.897, max: 2.897, home: 0.785  },
   ];
 
+  const liveJoints = document.getElementById('live-joints');
+  liveJoints.innerHTML = JOINTS.map((joint, index) =>
+    `<div class="live-joint">${joint.id}<b id="live-q-${index}">—</b></div>`
+  ).join('');
+  let _previousRobotSnapshot = null;
+  let _lastCompletionLogged = null;
+  let _lastProgressLogged = -1;
+  let _uiRequestedOperation = null;
+
   // Build joint rows dynamically
   function buildJointRows(containerId, cls, deltaMode) {
     const c = document.getElementById(containerId);
@@ -785,6 +854,7 @@
   buildJointRows('joints-rows', 'jp', false);
   buildJointRows('deltas-rows', 'jd', true);
   buildJointRows('imp-rows',    'ji', false);
+  buildJointRows('mv-joint-rows', 'mvjq', false);
 
   function getJointVals(cls) {
     return JOINTS.map((_, i) => parseFloat(document.getElementById(`${cls}-n-${i}`).value));
@@ -833,7 +903,14 @@
   function logInfo(msg) {
     const box = document.getElementById('log-box');
     const line = document.createElement('div');
-    line.innerHTML = `<span class="log-ts">${ts()}</span><span class="log-info">${msg}</span>`;
+    line.style.cssText = 'word-break:break-all;white-space:pre-wrap;';
+    const time = document.createElement('span');
+    time.className = 'log-ts';
+    time.textContent = ts();
+    const message = document.createElement('span');
+    message.className = 'log-info';
+    message.textContent = msg;
+    line.append(time, message);
     box.appendChild(line);
     if (document.getElementById('autoscroll').checked) box.scrollTop = box.scrollHeight;
   }
@@ -851,6 +928,10 @@
       const r = await fetch(`${PROXY}/${path}`, opts);
       const data = await r.json().catch(() => ({}));
       log(method, path, r.ok, data);
+      if (method === 'POST' && r.ok && data.status === 'accepted') {
+        _uiRequestedOperation = data.operation || path;
+        logInfo(`Operazione accettata: ${data.operation || path}`);
+      }
       return { ok: r.ok, data };
     } catch(e) {
       log(method, path, false, { error: e.message });
@@ -892,23 +973,118 @@
     box.textContent = JSON.stringify(data, null, 2);
   }
 
-  // ── Status ──────────────────────────────────────────────────────────────
-  async function refreshStatus() {
+  // ── Status, operation activity and live robot state ───────────────────────
+  function updateLiveJointValues(state) {
+    const values = state && (state.joint_positions || state.q_measured);
+    JOINTS.forEach((_, index) => {
+      const value = Array.isArray(values) ? values[index] : undefined;
+      document.getElementById(`live-q-${index}`).textContent = Number.isFinite(value) ? value.toFixed(3) : '—';
+    });
+  }
+
+  async function refreshRobotTelemetry() {
     try {
-      const { ok, data } = await cf('GET', 'health');
-      const connected = data.connected ?? false;
-      const busy = data.busy ?? false;
-      document.getElementById('conn-dot').className =
-        'dot ' + (connected ? (busy ? 'busy' : 'online') : 'offline');
-      document.getElementById('status-text').textContent =
-        connected ? (busy ? 'Robot busy' : 'Robot connected — ' + (data.robot_ip || '')) : 'Robot not connected';
-      const mb = document.getElementById('mode-badge');
-      if (data.mode) { mb.textContent = data.mode; mb.style.display = ''; } else mb.style.display = 'none';
+      const statusResponse = await fetch(`${PROXY}/api/robot/status`);
+      const status = await statusResponse.json().catch(() => ({}));
+      if (!statusResponse.ok) throw new Error(status.error || 'Stato robot non disponibile');
+
+      const connected = status.connected === true;
+      const busy = status.busy === true;
+      const faulted = status.mode === 'error_locked';
+      const dot = document.getElementById('conn-dot');
+      dot.className = `dot ${faulted ? 'fault' : (connected ? (busy ? 'busy' : 'online') : 'offline')}`;
+      document.getElementById('status-text').textContent = !connected
+        ? 'Robot not connected'
+        : (faulted ? 'Robot in ERROR_LOCKED' : (busy ? 'Robot busy' : 'Robot connected'));
+      const modeBadge = document.getElementById('mode-badge');
+      modeBadge.textContent = status.mode || 'unknown';
+      modeBadge.style.display = '';
       document.getElementById('busy-badge').style.display = busy ? '' : 'none';
-    } catch(e) {
+      document.getElementById('live-mode').textContent = status.mode || 'unknown';
+
+      const active = status.current_operation || (busy ? _uiRequestedOperation : null);
+      const progress = Number(status.progress);
+      document.getElementById('live-operation').textContent = busy
+        ? `In corso: ${active || 'operazione hardware'}`
+        : (status.last_operation ? `Ultima: ${status.last_operation.operation}` : 'In attesa');
+      const progressBar = document.getElementById('live-progress');
+      const progressText = document.getElementById('live-progress-text');
+      if (busy && Number.isFinite(progress)) {
+        progressBar.hidden = false;
+        progressText.hidden = false;
+        progressBar.value = Math.max(0, Math.min(progress, 100));
+        progressText.textContent = `${progress.toFixed(1)}%`;
+      } else {
+        progressBar.hidden = true;
+        progressText.hidden = true;
+      }
+
+      const completion = status.last_operation && status.last_operation.completed_at;
+      if (_previousRobotSnapshot) {
+        if (busy && (!_previousRobotSnapshot.busy || _previousRobotSnapshot.operation !== active)) {
+          logInfo(`Avvio: ${active || 'operazione hardware'}`);
+          _lastProgressLogged = -1;
+        }
+        if (faulted && _previousRobotSnapshot.mode !== 'error_locked') logInfo('ATTENZIONE: robot entrato in ERROR_LOCKED.');
+        if (!faulted && _previousRobotSnapshot.mode === 'error_locked') logInfo(`Modalità robot ripristinata: ${status.mode}.`);
+        if (!busy && completion && completion !== _lastCompletionLogged) {
+          const last = status.last_operation;
+          logInfo(`${last.success ? 'Completata' : 'Fallita'}: ${last.operation}${last.error ? ` — ${last.error}` : ''}`);
+          _lastCompletionLogged = completion;
+          _uiRequestedOperation = null;
+        } else if (_previousRobotSnapshot.busy && !busy && !completion) {
+          logInfo(`Operazione terminata: ${_previousRobotSnapshot.operation || _uiRequestedOperation || 'stato robot tornato idle'} (il servizio non ha riportato l’esito).`);
+          _uiRequestedOperation = null;
+        }
+        if (busy && Number.isFinite(progress)) {
+          const mark = Math.floor(progress / 10) * 10;
+          if (mark >= 10 && mark > _lastProgressLogged) {
+            logInfo(`Progresso ${active || 'movimento'}: ${mark}%`);
+            _lastProgressLogged = mark;
+          }
+        }
+      } else if (completion) {
+        _lastCompletionLogged = completion;
+      }
+      _previousRobotSnapshot = { busy, mode: status.mode, operation: active };
+
+      if (!connected) {
+        updateLiveJointValues(null);
+        ['live-x','live-y','live-z'].forEach(id => { document.getElementById(id).textContent = '—'; });
+        document.getElementById('telemetry-note').textContent = 'Robot disconnesso: nessuna telemetria disponibile.';
+        return;
+      }
+
+      const stateResponse = await fetch(`${PROXY}/api/robot/state`);
+      const state = await stateResponse.json().catch(() => ({}));
+      if (!stateResponse.ok) {
+        updateLiveJointValues(null);
+        ['live-x','live-y','live-z'].forEach(id => { document.getElementById(id).textContent = '—'; });
+        document.getElementById('telemetry-note').textContent = state.error || 'Lettura stato robot non disponibile.';
+        return;
+      }
+      updateLiveJointValues(state);
+      const position = state.cartesian_pose && state.cartesian_pose.position;
+      ['x','y','z'].forEach(axis => {
+        const value = position && position[axis];
+        document.getElementById(`live-${axis}`).textContent = Number.isFinite(value) ? value.toFixed(4) : '—';
+      });
+      const safetyFlags = state.cartesian_collision || state.collision || [];
+      const hasCollision = Array.isArray(safetyFlags) && safetyFlags.some(Boolean);
+      const timestamp = new Date().toLocaleTimeString();
+      document.getElementById('telemetry-note').textContent = hasCollision
+        ? `Aggiornato ${timestamp} · ATTENZIONE: flag collisione attivo.`
+        : `Aggiornato ${timestamp}${busy && !position ? ' · giunti live; posa TCP non inclusa nel callback di questo movimento.' : ''}`;
+    } catch (error) {
       document.getElementById('conn-dot').className = 'dot offline';
       document.getElementById('status-text').textContent = 'Cobot service unreachable';
+      document.getElementById('live-operation').textContent = error.message;
+      document.getElementById('telemetry-note').textContent = 'Impossibile aggiornare la telemetria.';
     }
+  }
+
+  async function refreshStatus() {
+    await refreshRobotTelemetry();
   }
 
   let _pollTimer = null;
@@ -1109,6 +1285,75 @@
     }
     setResult('mv-plan-result', ok ? summarizePlan(data) : data, ok && data.success);
     showState('mv-plan-box', summarizePlan(data), ok && data.success, false);
+  }
+
+  let _lastJointTrajectory = null;
+
+  async function planMoveItJoints() {
+    const executeButton = document.getElementById('mv-joint-execute-btn');
+    executeButton.disabled = true;
+    _lastJointTrajectory = null;
+
+    const targetValues = getJointVals('mvjq');
+    const speedFactor = n('mv-joint-speed-n');
+    if (targetValues.some(value => !Number.isFinite(value))) {
+      setResult('mv-joint-plan-result', { error: 'Inserire valori numerici validi per tutti i giunti target.' }, false);
+      return;
+    }
+    if (!Number.isFinite(speedFactor) || speedFactor < 0.01 || speedFactor > 1) {
+      setResult('mv-joint-plan-result', { error: 'Speed factor deve essere compreso tra 0.01 e 1.' }, false);
+      return;
+    }
+
+    const stateResp = await cf('GET', 'api/robot/state');
+    if (!stateResp.ok || !Array.isArray(stateResp.data.joint_positions) || stateResp.data.joint_positions.length !== FR3_JOINT_NAMES.length) {
+      setResult('mv-joint-plan-result', { error: stateResp.data.error || 'Impossibile leggere lo stato articolare reale del cobot.' }, false);
+      return;
+    }
+    const start_joint_positions = Object.fromEntries(
+      stateResp.data.joint_positions.map((value, index) => [FR3_JOINT_NAMES[index], value])
+    );
+    const joint_positions = Object.fromEntries(
+      targetValues.map((value, index) => [FR3_JOINT_NAMES[index], value])
+    );
+    const body = {
+      joint_positions,
+      speed_factor: speedFactor,
+      start_joint_positions,
+    };
+    const { ok, data } = await mf('POST', 'moveit/plan-joint', body);
+    if (ok && data.success && data.trajectory && Array.isArray(data.trajectory.points) && data.trajectory.points.length > 0) {
+      _lastJointTrajectory = data.trajectory;
+      executeButton.disabled = false;
+    }
+    setResult('mv-joint-plan-result', ok ? summarizePlan(data) : data, ok && data.success);
+    showState('mv-joint-plan-box', summarizePlan(data), ok && data.success, false);
+  }
+
+  async function executeJointPlannedTrajectory() {
+    if (!_lastJointTrajectory) return;
+    const points = _lastJointTrajectory.points;
+    const segmentDuration = n('mv-joint-segment-duration');
+    if (!Number.isFinite(segmentDuration) || segmentDuration < 0.5 || segmentDuration > 30) {
+      setResult('mv-joint-plan-result', { error: 'La durata per waypoint deve essere compresa tra 0.5 e 30 secondi.' }, false);
+      return;
+    }
+    if (!confirm(`Eseguire la traiettoria articolare MoveIt (${points.length} waypoint, ${segmentDuration} s/waypoint)? Il cobot si muoverà davvero.`)) return;
+
+    const plannedNames = _lastJointTrajectory.joint_names || [];
+    if (!FR3_JOINT_NAMES.every(name => plannedNames.includes(name))) {
+      setResult('mv-joint-plan-result', { error: `Nomi dei giunti MoveIt incompatibili: ${plannedNames.join(', ')}` }, false);
+      return;
+    }
+    const waypoints = points.map(point =>
+      FR3_JOINT_NAMES.map(name => point.positions[plannedNames.indexOf(name)])
+    );
+    const { ok, data } = await cf('POST', 'api/motion/execute-trajectory', {
+      waypoints,
+      speed_factor: n('mv-joint-speed-n'),
+      segment_duration: segmentDuration,
+    });
+    setResult('mv-joint-plan-result', data, ok);
   }
 
   async function executePlannedTrajectory() {

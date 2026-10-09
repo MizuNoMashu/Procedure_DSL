@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trajectory Builder — Procedure DSL</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #18252a; background: #f4f7f8; font-family: Inter, system-ui, sans-serif; }
+    nav { display:flex; gap:4px; align-items:center; padding:10px 22px; background:#fff; border-bottom:1px solid #dce4e7; position:sticky; top:0; z-index:5; }
+    nav a { padding:9px 12px; color:#53656c; text-decoration:none; font-size:.88rem; border-radius:7px; }
+    nav a.active, nav a:hover { color:#0e333c; background:#e9f4f5; }
+    main { max-width:1250px; margin:auto; padding:24px 22px 50px; }
+    h1 { margin:0 0 6px; font-size:1.65rem; }
+    h2 { margin:0 0 12px; font-size:1.05rem; }
+    h3 { margin:0; font-size:.98rem; }
+    p { margin:0; color:#66777d; line-height:1.5; font-size:.88rem; }
+    .subhead { margin-bottom:20px; }
+    .grid { display:grid; grid-template-columns:minmax(260px, .85fr) minmax(400px, 1.5fr); gap:16px; align-items:start; }
+    .panel { background:#fff; border:1px solid #dce4e7; border-radius:12px; padding:17px; margin-bottom:15px; box-shadow:0 2px 8px #14323a08; }
+    .panel-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; }
+    .status { display:flex; align-items:center; gap:9px; padding:10px 12px; background:#f7fafb; border:1px solid #e2eaec; border-radius:9px; font-size:.84rem; margin-bottom:12px; }
+    .dot { width:10px; height:10px; flex:none; border-radius:50%; background:#9aa7ab; }
+    .dot.online { background:#35a36c; } .dot.busy { background:#e8a132; }
+    .spacer { flex:1; }
+    .row { display:flex; flex-wrap:wrap; align-items:end; gap:9px; margin:9px 0; }
+    .col { display:flex; flex-direction:column; gap:4px; }
+    label { color:#617279; font-size:.75rem; }
+    input, select { min-width:0; border:1px solid #cbd7da; border-radius:7px; background:white; color:#18252a; padding:8px 9px; font:inherit; font-size:.84rem; }
+    input[type=number] { width:105px; } input[type=text] { width:150px; }
+    input:focus, select:focus { outline:2px solid #80bdc9; border-color:#3c909e; }
+    button { border:1px solid #c4d0d3; border-radius:8px; background:#fff; color:#24373d; cursor:pointer; padding:8px 12px; font:inherit; font-size:.82rem; }
+    button:hover:not(:disabled) { background:#eef5f6; }
+    button:disabled { cursor:not-allowed; opacity:.5; }
+    button.primary { border-color:#146775; background:#146775; color:white; }
+    button.primary:hover:not(:disabled) { background:#105561; }
+    button.danger { color:#a33232; border-color:#e6c9c9; }
+    button.small { padding:5px 8px; }
+    .hint { font-size:.75rem; color:#73848a; }
+    .result { padding:9px 11px; border-radius:8px; margin-top:10px; background:#f2f6f7; color:#52636a; font-size:.82rem; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .result:empty { display:none; }
+    .result.error { background:#fff0ee; color:#a2372d; }
+    .result.good { background:#edf8f0; color:#287447; }
+    .tools { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+    .tools button { text-align:left; }
+    .pipeline-empty { text-align:center; border:1px dashed #c4d2d5; border-radius:10px; padding:28px 16px; color:#75858a; }
+    .step-card { border:1px solid #d7e1e3; border-radius:10px; margin:10px 0; overflow:hidden; background:#fff; }
+    .step-head { display:flex; align-items:center; gap:9px; padding:10px 12px; background:#f6f9fa; border-bottom:1px solid #e7edef; }
+    .step-index { display:grid; place-items:center; width:27px; height:27px; border-radius:8px; background:#dff0f2; color:#146775; font-weight:700; font-size:.8rem; }
+    .step-title { font-weight:650; font-size:.86rem; }
+    .step-body { padding:12px; }
+    .step-fields { display:flex; flex-wrap:wrap; gap:9px; margin-top:10px; }
+    .step-fields .col { min-width:100px; }
+    .step-fields .col.wide { min-width:190px; }
+    .mini-sep { border:0; border-top:1px solid #edf0f1; margin:12px 0; }
+    .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    #run-state { font-weight:600; }
+    #gripper-state, #gripper-errors { max-height:155px; overflow:auto; white-space:pre-wrap; font: .76rem ui-monospace, monospace; background:#f6f8f9; border-radius:8px; padding:9px; margin-top:9px; }
+    @media (max-width:800px) { .grid { grid-template-columns:1fr; } nav { overflow-x:auto; } main { padding:17px 12px 40px; } }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/">Extractor</a><a href="/editor">Editor</a><a href="/cobot">Cobot</a>
+  <a href="/trajectory-builder" class="active">Trajectory Builder</a>
+  <a href="/dsl-cobot">DSL Cobot</a><a href="/dsl-manage">DSL Manage</a>
+</nav>
+<main>
+  <h1>Trajectory Builder</h1>
+  <p class="subhead">Componi una sequenza ordinata di movimenti (MoveIt o diretti) e operazioni del gripper; poi configura i parametri e avviala in sequenza.</p>
+
+  <div class="grid">
+    <aside>
+      <section class="panel">
+        <div class="panel-head"><h2>Connessione cobot</h2><button class="small" onclick="refreshRobotStatus()">Aggiorna</button></div>
+        <div class="status"><span id="robot-dot" class="dot"></span><span id="robot-status">Verifico servizio…</span><span id="robot-mode" class="hint"></span></div>
+        <div class="row">
+          <div class="col"><label for="robot-ip">IP robot</label><input id="robot-ip" type="text" value="172.16.0.3"></div>
+          <label><input id="enforce-rt" type="checkbox" checked> Realtime</label>
+        </div>
+        <div class="toolbar">
+          <button class="primary" onclick="connectRobot()">Connect</button>
+          <button onclick="disconnectRobot()">Disconnect</button>
+          <button class="danger" onclick="recoverRobot()">Recovery</button>
+        </div>
+        <div id="connection-result" class="result"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Gripper</h2><button class="small" onclick="refreshGripper()">Stato</button></div>
+        <div class="toolbar">
+          <button class="small" onclick="gripperErrors()">Errori</button>
+          <button class="small" onclick="clearGripperErrors()">Pulisci errori</button>
+          <button class="small" onclick="gripperReset()">Reset lock</button>
+          <button class="small" onclick="gripperReconnect()">Riconnetti</button>
+        </div>
+        <pre id="gripper-state" hidden></pre><pre id="gripper-errors" hidden></pre>
+        <hr class="mini-sep">
+        <div class="toolbar">
+          <button class="small" onclick="gripperHome()">Homing</button>
+          <button class="small" onclick="basicGripperOpen()">Apri</button>
+          <button class="small" onclick="basicGripperGrasp()">Grasp</button>
+          <button class="small" onclick="basicGripperRelease()">Rilascia</button>
+        </div>
+        <div id="gripper-result" class="result"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Aggiungi operazione</h2></div>
+        <div class="tools">
+          <button onclick="addStep('moveit_pose')">＋ MoveIt · posa cartesiana</button>
+          <button onclick="addStep('moveit_joint')">＋ MoveIt · giunti</button>
+          <button onclick="addStep('cartesian_pose')">＋ Movimento cartesiano</button>
+          <button onclick="addStep('cartesian_relative')">＋ Relativo cartesiano</button>
+          <button onclick="addStep('joint_absolute')">＋ Movimento articolare</button>
+          <button onclick="addStep('joint_relative')">＋ Relativo articolare</button>
+          <button onclick="addStep('gripper_home')">＋ Gripper · homing</button>
+          <button onclick="addStep('gripper_open')">＋ Gripper · apri</button>
+          <button onclick="addStep('gripper_grasp')">＋ Gripper · grasp</button>
+          <button onclick="addStep('gripper_release')">＋ Gripper · rilascia</button>
+          <button onclick="addStep('gripper_close')">＋ Gripper · chiudi</button>
+        </div>
+        <p class="hint" style="margin-top:10px">Le operazioni vengono eseguite dall’alto verso il basso. Puoi riordinarle o rimuoverle.</p>
+      </section>
+    </aside>
+
+    <section class="panel">
+      <div class="panel-head"><div><h2>La tua pipeline</h2><p id="step-count" class="hint">0 operazioni</p></div></div>
+      <div id="pipeline-empty" class="pipeline-empty">Aggiungi un movimento o un comando del gripper per iniziare.</div>
+      <div id="pipeline-steps"></div>
+      <div id="pipeline-actions" class="toolbar" hidden style="margin-top:15px">
+        <button id="run-pipeline" class="primary" onclick="runPipeline()">▶ Esegui pipeline</button>
+        <button onclick="clearPipeline()">Svuota</button>
+      </div>
+      <div id="pipeline-result" class="result" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+<script>
+  const PROXY = '/cobot-proxy';
+  const MOVEIT_PROXY = '/moveit-proxy';
+  const FR3_JOINT_NAMES = ['fr3_joint1','fr3_joint2','fr3_joint3','fr3_joint4','fr3_joint5','fr3_joint6','fr3_joint7'];
+  const TYPE_INFO = {
+    moveit_pose: { title: 'MoveIt · Posa cartesiana', kind: 'move' },
+    moveit_joint: { title: 'MoveIt · Posizione articolare', kind: 'move' },
+    cartesian_pose: { title: 'Movimento cartesiano assoluto', kind: 'move' },
+    cartesian_relative: { title: 'Movimento cartesiano relativo', kind: 'move' },
+    joint_absolute: { title: 'Movimento articolare assoluto', kind: 'move' },
+    joint_relative: { title: 'Movimento articolare relativo', kind: 'move' },
+    gripper_home: { title: 'Gripper · Homing', kind: 'gripper' },
+    gripper_open: { title: 'Gripper · Apri', kind: 'gripper' },
+    gripper_grasp: { title: 'Gripper · Grasp', kind: 'gripper' },
+    gripper_release: { title: 'Gripper · Rilascia', kind: 'gripper' },
+    gripper_close: { title: 'Gripper · Chiudi', kind: 'gripper' },
+  };
+  const JOINT_LABELS = ['J1 · Base','J2 · Spalla','J3 · Gomito','J4 · Polso 1','J5 · Polso 2','J6 · Polso 3','J7 · Flangia'];
+  const JOINT_LIMITS = [[-2.897,2.897],[-1.763,1.763],[-2.897,2.897],[-3.072,-0.070],[-2.897,2.897],[-0.018,3.753],[-2.897,2.897]];
+  let steps = [];
+  let nextId = 1;
+  let running = false;
+
+  function log(method, path, ok, data) {
+    console.info(`[${new Date().toLocaleTimeString()}] ${method} ${path} ${ok ? 'OK' : 'ERR'}`, data);
+  }
+  async function requestJson(base, method, path, body) {
+    const options = { method, headers: {} };
+    if (body !== undefined) { options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify(body); }
+    try {
+      const response = await fetch(`${base}/${path}`, options);
+      const data = await response.json().catch(() => ({}));
+      log(method, `${base}/${path}`, response.ok, data);
+      return { ok: response.ok, data };
+    } catch (error) {
+      const data = { error: error.message };
+      log(method, `${base}/${path}`, false, data);
+      return { ok: false, data };
+    }
+  }
+  const cobot = (method, path, body) => requestJson(PROXY, method, path, body);
+  const moveit = (method, path, body) => requestJson(MOVEIT_PROXY, method, path, body);
+
+  async function refreshRobotStatus() {
+    const { ok, data } = await cobot('GET', 'health');
+    const online = ok && data.connected;
+    const dot = document.getElementById('robot-dot');
+    dot.className = `dot ${online ? (data.busy ? 'busy' : 'online') : ''}`;
+    document.getElementById('robot-status').textContent = !ok ? 'Servizio cobot non raggiungibile' : (online ? (data.busy ? 'Robot occupato' : 'Robot connesso') : 'Robot non connesso');
+    document.getElementById('robot-mode').textContent = data.mode || '';
+  }
+  async function connectRobot() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/robot/connect', {
+      robot_ip: document.getElementById('robot-ip').value.trim(),
+      enforce_realtime: document.getElementById('enforce-rt').checked,
+    });
+    displayResult('connection-result', data, ok);
+    refreshRobotStatus();
+  }
+  async function disconnectRobot() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/robot/disconnect');
+    displayResult('connection-result', data, ok);
+    refreshRobotStatus();
+  }
+  async function recoverRobot() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/robot/recovery');
+    displayResult('connection-result', data, ok && data.success === true);
+    refreshRobotStatus();
+  }
+  function displayResult(id, data, ok) {
+    const el = document.getElementById(id);
+    el.className = `result ${ok ? 'good' : 'error'}`;
+    el.textContent = data.status || data.error || data.message || JSON.stringify(data);
+  }
+  async function refreshGripper() {
+    const { ok, data } = await cobot('GET', 'api/gripper/state');
+    const box = document.getElementById('gripper-state');
+    box.hidden = false;
+    box.textContent = JSON.stringify(data, null, 2);
+    box.style.color = ok ? '#334' : '#a32';
+  }
+  async function gripperErrors() {
+    const { ok, data } = await cobot('GET', 'api/gripper/errors');
+    const box = document.getElementById('gripper-errors');
+    box.hidden = false;
+    box.textContent = JSON.stringify(data, null, 2);
+    box.style.color = ok ? '#334' : '#a32';
+  }
+  async function clearGripperErrors() {
+    if (running) return;
+    const { ok, data } = await cobot('DELETE', 'api/gripper/errors');
+    displayResult('gripper-result', data, ok);
+  }
+  async function gripperReset() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/gripper/reset-lock');
+    displayResult('gripper-result', data, ok);
+  }
+  async function gripperReconnect() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/gripper/reconnect');
+    displayResult('gripper-result', data, ok);
+  }
+  async function gripperHome() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/gripper/home');
+    displayResult('gripper-result', data, ok);
+    if (ok) await waitForCobotIdle();
+  }
+  async function basicGripperOpen() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/gripper/open', { width_mm: 80, speed: 0.1 });
+    displayResult('gripper-result', data, ok && data.success === true);
+  }
+  async function basicGripperGrasp() {
+    if (running) return;
+    const rawWidth = prompt('Larghezza grasp in mm (0–80):', '40');
+    if (rawWidth === null || rawWidth.trim() === '') return;
+    const width_mm = Number(rawWidth);
+    if (!Number.isFinite(width_mm) || width_mm < 0 || width_mm > 80) return;
+    const { ok, data } = await cobot('POST', 'api/gripper/grasp', { width_mm, force: 60, speed: 0.1 });
+    displayResult('gripper-result', data, ok && data.success === true);
+  }
+  async function basicGripperRelease() {
+    if (running) return;
+    const { ok, data } = await cobot('POST', 'api/gripper/release');
+    displayResult('gripper-result', data, ok && data.success === true);
+  }
+
+  const MOVE_TYPES = ['moveit_pose','moveit_joint','cartesian_pose','cartesian_relative','joint_absolute','joint_relative'];
+  const GRIPPER_TYPES = ['gripper_home','gripper_open','gripper_grasp','gripper_release','gripper_close'];
+  function addStep(type) {
+    if (running) return;
+    steps.push({ id: nextId++, type, params: {} });
+    renderPipeline();
+  }
+  function readParamsFromDom() {
+    for (const step of steps) {
+      const card = document.querySelector(`[data-step-id="${step.id}"]`);
+      if (!card) continue;
+      for (const input of card.querySelectorAll('[data-param]')) {
+        step.params[input.dataset.param] = input.type === 'number'
+          ? (input.value.trim() === '' ? NaN : Number(input.value))
+          : input.value;
+      }
+    }
+  }
+  function field(name, label, value, opts = {}) {
+    const min = opts.min !== undefined ? ` min="${opts.min}"` : '';
+    const max = opts.max !== undefined ? ` max="${opts.max}"` : '';
+    const step = opts.step !== undefined ? ` step="${opts.step}"` : ' step="0.01"';
+    const width = opts.width ? ` style="width:${opts.width}px"` : '';
+    return `<div class="col"><label>${label}</label><input type="number" data-param="${name}" value="${value}"${min}${max}${step}${width}></div>`;
+  }
+  function jointFields(prefix, defaults) {
+    return `<div class="step-fields">${JOINT_LABELS.map((label, i) => field(`${prefix}${i}`, label, defaults[i], { min: JOINT_LIMITS[i][0], max: JOINT_LIMITS[i][1], step: 0.001, width: 110 })).join('')}</div>`;
+  }
+  function paramsMarkup(step) {
+    const p = step.params;
+    const num = (key, fallback) => Number.isFinite(p[key]) ? p[key] : fallback;
+    switch (step.type) {
+      case 'moveit_pose':
+        return `<p class="hint">Pianifica la posa con MoveIt (metri e radianti), poi esegue i waypoint calcolati.</p><div class="step-fields">${field('x','X (m)',num('x',0.4),{step:0.001})}${field('y','Y (m)',num('y',0),{step:0.001})}${field('z','Z (m)',num('z',0.4),{step:0.001})}${field('roll','Roll (rad)',num('roll',0))}${field('pitch','Pitch (rad)',num('pitch',0))}${field('yaw','Yaw (rad)',num('yaw',0))}${field('speed_factor','Speed factor',num('speed_factor',0.2),{min:0.01,max:1})}${field('segment_duration','Secondi per waypoint',num('segment_duration',0.7),{min:0.5,max:30,step:0.1})}</div>`;
+      case 'moveit_joint':
+        return `<p class="hint">Pianifica verso i 7 target articolari usando lo stato reale attuale come start.</p>${jointFields('q', JOINT_LABELS.map((_, i) => num(`q${i}`, [0,-0.785,0,-2.356,0,1.571,0.785][i])))}<div class="step-fields">${field('speed_factor','Speed factor',num('speed_factor',0.2),{min:0.01,max:1})}${field('segment_duration','Secondi per waypoint',num('segment_duration',0.7),{min:0.5,max:30,step:0.1})}</div>`;
+      case 'cartesian_pose':
+        return `<p class="hint">Comando diretto /api/motion-cartesian/move: posa assoluta TCP.</p><div class="step-fields">${field('x','X (m)',num('x',0.4),{step:0.001})}${field('y','Y (m)',num('y',0),{step:0.001})}${field('z','Z (m)',num('z',0.4),{step:0.001})}${field('roll','Roll (rad)',num('roll',0))}${field('pitch','Pitch (rad)',num('pitch',0))}${field('yaw','Yaw (rad)',num('yaw',0))}${field('speed_factor','Speed factor',num('speed_factor',0.2),{min:0.01,max:1})}${field('tolerance','Tolleranza posizione (m)',num('tolerance',0.01),{min:0.001})}${field('orientation_tolerance','Tolleranza orientamento (rad)',num('orientation_tolerance',0.05),{min:0.001})}</div>`;
+      case 'cartesian_relative':
+        return `<p class="hint">Spostamento relativo: delta XYZ in metri, delta RPY in radianti.</p><div class="step-fields">${field('dx','ΔX (m)',num('dx',0),{step:0.001})}${field('dy','ΔY (m)',num('dy',0),{step:0.001})}${field('dz','ΔZ (m)',num('dz',0),{step:0.001})}${field('droll','ΔRoll (rad)',num('droll',0))}${field('dpitch','ΔPitch (rad)',num('dpitch',0))}${field('dyaw','ΔYaw (rad)',num('dyaw',0))}${field('speed_factor','Speed factor',num('speed_factor',0.2),{min:0.01,max:1})}${field('tolerance','Tolleranza (m)',num('tolerance',0.01),{min:0.001})}</div>`;
+      case 'joint_absolute':
+        return `<p class="hint">Comando diretto verso target articolari (radianti).</p>${jointFields('q', JOINT_LABELS.map((_, i) => num(`q${i}`, [0,-0.785,0,-2.356,0,1.571,0.785][i])))}<div class="step-fields">${field('speed_factor','Speed factor',num('speed_factor',0.2),{min:0.01,max:1})}${field('tolerance','Tolleranza (rad)',num('tolerance',0.04),{min:0.001})}</div>`;
+      case 'joint_relative':
+        return `<p class="hint">Delta articolari relativi in radianti.</p>${jointFields('d', JOINT_LABELS.map((_, i) => num(`d${i}`, 0)))}<div class="step-fields">${field('speed_factor','Speed factor',num('speed_factor',0.2),{min:0.01,max:1})}</div>`;
+      case 'gripper_open': return `<div class="step-fields">${field('width_mm','Apertura (mm)',num('width_mm',80),{min:0,max:80})}${field('speed','Velocità (m/s)',num('speed',0.1),{min:0.001,max:0.2})}</div>`;
+      case 'gripper_grasp': return `<div class="step-fields">${field('width_mm','Larghezza oggetto (mm)',num('width_mm',40),{min:0,max:80})}${field('force','Forza (N)',num('force',60),{min:1,max:140})}${field('speed','Velocità (m/s)',num('speed',0.1),{min:0.001,max:0.2})}</div>`;
+      case 'gripper_close': return `<div class="step-fields">${field('speed','Velocità (m/s)',num('speed',0.1),{min:0.001,max:0.2})}</div>`;
+      case 'gripper_release': return `<p class="hint">Rilascia l’oggetto e apre il gripper.</p>`;
+      case 'gripper_home': return `<p class="hint">Esegue homing/calibrazione del gripper prima delle operazioni successive.</p>`;
+      default: return '';
+    }
+  }
+  function renderPipeline() {
+    readParamsFromDom();
+    const list = document.getElementById('pipeline-steps');
+    list.innerHTML = '';
+    document.getElementById('pipeline-empty').hidden = steps.length > 0;
+    document.getElementById('pipeline-actions').hidden = steps.length === 0;
+    document.getElementById('step-count').textContent = `${steps.length} operazioni`;
+    steps.forEach((step, index) => {
+      const card = document.createElement('article');
+      card.className = 'step-card';
+      card.dataset.stepId = step.id;
+      card.innerHTML = `<header class="step-head"><span class="step-index">${index + 1}</span><span class="step-title">${TYPE_INFO[step.type].title}</span><span class="spacer"></span><button class="small" data-action="up" ${index === 0 ? 'disabled' : ''} title="Sposta su">↑</button><button class="small" data-action="down" ${index === steps.length - 1 ? 'disabled' : ''} title="Sposta giù">↓</button><button class="small danger" data-action="remove">Rimuovi</button></header><div class="step-body"><div class="row"><div class="col"><label>Tipo operazione</label><select data-action="type">${(TYPE_INFO[step.type].kind === 'move' ? MOVE_TYPES : GRIPPER_TYPES).map(type => `<option value="${type}" ${step.type === type ? 'selected' : ''}>${TYPE_INFO[type].title}</option>`).join('')}</select></div></div>${paramsMarkup(step)}<div class="result" data-step-result></div></div>`;
+      card.addEventListener('change', event => {
+        const action = event.target.dataset.action;
+        if (action === 'type') {
+          readParamsFromDom();
+          step.type = event.target.value;
+          step.params = {};
+          renderPipeline();
+        } else if (event.target.dataset.param) {
+          step.params[event.target.dataset.param] = Number(event.target.value);
+        }
+      });
+      card.addEventListener('click', event => {
+        const action = event.target.dataset.action;
+        if (!action || action === 'type') return;
+        event.preventDefault();
+        readParamsFromDom();
+        if (action === 'remove') steps = steps.filter(item => item.id !== step.id);
+        if (action === 'up' && index > 0) [steps[index - 1], steps[index]] = [steps[index], steps[index - 1]];
+        if (action === 'down' && index < steps.length - 1) [steps[index + 1], steps[index]] = [steps[index], steps[index + 1]];
+        renderPipeline();
+      });
+      list.appendChild(card);
+    });
+    document.querySelectorAll('#pipeline-steps input').forEach(input => input.disabled = running);
+    document.querySelectorAll('#pipeline-steps select, #pipeline-steps button').forEach(control => control.disabled = running || control.disabled);
+    document.getElementById('run-pipeline').disabled = running || steps.length === 0;
+  }
+  function clearPipeline() { if (running) return; steps = []; renderPipeline(); setPipelineResult(''); }
+  function setPipelineResult(message, type = '') {
+    const el = document.getElementById('pipeline-result');
+    el.textContent = message;
+    el.className = `result ${type}`;
+  }
+  function stepResult(step, text, ok) {
+    const card = document.querySelector(`[data-step-id="${step.id}"]`);
+    if (!card) return;
+    const el = card.querySelector('[data-step-result]');
+    el.textContent = text;
+    el.className = `result ${ok ? 'good' : 'error'}`;
+  }
+  function paramsFor(step) {
+    readParamsFromDom();
+    const params = { ...step.params };
+    const numeric = Object.entries(params);
+    for (const [key, value] of numeric) {
+      if (!Number.isFinite(value)) throw new Error(`${TYPE_INFO[step.type].title}: parametro ${key} non numerico.`);
+    }
+    return params;
+  }
+  async function waitForCobotIdle(timeoutMs = 240000) {
+    const start = Date.now();
+    let observedBusy = false;
+    while (Date.now() - start < timeoutMs) {
+      const { ok, data } = await cobot('GET', 'api/robot/status');
+      if (!ok) throw new Error(data.error || 'Impossibile leggere lo stato del robot.');
+      if (!data.connected) throw new Error('Robot disconnesso durante la pipeline.');
+      if (data.busy) observedBusy = true;
+      else if (observedBusy) {
+        if (data.mode === 'error_locked') throw new Error('Robot in ERROR_LOCKED al termine del movimento.');
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    throw new Error('Timeout attendendo la fine dell’operazione cobot.');
+  }
+  async function executeDirectMotion(endpoint, body) {
+    const response = await cobot('POST', endpoint, body);
+    if (!response.ok) throw new Error(response.data.error || `Richiesta rifiutata (${endpoint}).`);
+    if (response.data.status === 'accepted') await waitForCobotIdle();
+    const status = await cobot('GET', 'api/robot/status');
+    if (status.ok && status.data.mode === 'error_locked') throw new Error('Robot in ERROR_LOCKED: controllare errori e Desk/FCI.');
+    return response.data;
+  }
+  async function executeMoveIt(step, params) {
+    const startState = await cobot('GET', 'api/robot/state');
+    if (!startState.ok || !Array.isArray(startState.data.joint_positions) || startState.data.joint_positions.length !== 7) {
+      throw new Error(startState.data.error || 'Stato articolare reale non disponibile.');
+    }
+    const start_joint_positions = Object.fromEntries(startState.data.joint_positions.map((v, i) => [FR3_JOINT_NAMES[i], v]));
+    let planPath;
+    let planBody;
+    if (step.type === 'moveit_pose') {
+      planPath = 'moveit/plan-pose';
+      planBody = { position: { x: params.x, y: params.y, z: params.z }, rpy: [params.roll, params.pitch, params.yaw], speed_factor: params.speed_factor, start_joint_positions };
+    } else {
+      planPath = 'moveit/plan-joint';
+      planBody = { joint_positions: Object.fromEntries(FR3_JOINT_NAMES.map((name, i) => [name, params[`q${i}`]])), speed_factor: params.speed_factor, start_joint_positions };
+    }
+    const plan = await moveit('POST', planPath, planBody);
+    if (!plan.ok || !plan.data.success) throw new Error(plan.data.error || `MoveIt: ${plan.data.error_name || 'nessun piano trovato'}`);
+    const trajectory = plan.data.trajectory;
+    const points = trajectory && trajectory.points;
+    if (!Array.isArray(points) || points.length === 0) throw new Error('MoveIt ha restituito una traiettoria vuota.');
+    const names = trajectory.joint_names || [];
+    if (!FR3_JOINT_NAMES.every(name => names.includes(name))) throw new Error(`Ordine/nomi giunti MoveIt incompatibili: ${names.join(', ')}`);
+    const waypoints = points.map(point => FR3_JOINT_NAMES.map(name => point.positions[names.indexOf(name)]));
+    const execution = await cobot('POST', 'api/motion/execute-trajectory', { waypoints, speed_factor: params.speed_factor, segment_duration: params.segment_duration });
+    if (!execution.ok) throw new Error(execution.data.error || 'Cobot ha rifiutato la traiettoria.');
+    await waitForCobotIdle();
+    return `${points.length} waypoint eseguiti (${params.segment_duration} s/waypoint)`;
+  }
+  async function executeGripper(step, params) {
+    const paths = {
+      gripper_home: ['api/gripper/home', {}],
+      gripper_open: ['api/gripper/open', { width_mm: params.width_mm, speed: params.speed }],
+      gripper_grasp: ['api/gripper/grasp', { width_mm: params.width_mm, force: params.force, speed: params.speed }],
+      gripper_release: ['api/gripper/release', {}],
+      gripper_close: ['api/gripper/close', { speed: params.speed }],
+    };
+    const [endpoint, body] = paths[step.type];
+    const response = await cobot('POST', endpoint, body);
+    if (!response.ok) throw new Error(response.data.error || `${endpoint} fallito.`);
+    if (step.type === 'gripper_home') {
+      await waitForCobotIdle(30000);
+      const state = await cobot('GET', 'api/gripper/state');
+      if (!state.ok || state.data.mode !== 'ready') throw new Error('Homing gripper non completato o gripper non in stato READY.');
+    } else if (response.data.success !== true) throw new Error(`Operazione gripper ${step.type} non riuscita.`);
+    if (step.type === 'gripper_grasp') {
+      const state = await cobot('GET', 'api/gripper/state');
+      if (!state.ok || state.data.is_grasped !== true) throw new Error('Presa non confermata dal gripper.');
+    }
+    return response.data.operation || response.data.status || 'completato';
+  }
+  async function runPipeline() {
+    if (running || !steps.length) return;
+    readParamsFromDom();
+    let validated;
+    try {
+      validated = steps.map(step => ({ step, params: paramsFor(step) }));
+    } catch (error) {
+      setPipelineResult(error.message, 'error');
+      return;
+    }
+    const robot = await cobot('GET', 'api/robot/status');
+    if (!robot.ok || !robot.data.connected || robot.data.busy || robot.data.mode === 'error_locked') {
+      const reason = !robot.ok
+        ? (robot.data.error || 'Servizio cobot non raggiungibile.')
+        : (!robot.data.connected ? 'Connettere il robot prima di eseguire la pipeline.'
+          : robot.data.busy ? 'Il robot è occupato: attendere il completamento dell’operazione.'
+            : 'Robot in ERROR_LOCKED: eseguire il recovery prima della pipeline.');
+      setPipelineResult(reason, 'error');
+      return;
+    }
+    const sequence = validated.map(({ step }, index) => `${index + 1}. ${TYPE_INFO[step.type].title}`).join('\n');
+    if (!confirm(`Eseguire questa pipeline? Il cobot si muoverà realmente.\n\n${sequence}`)) return;
+    running = true;
+    renderPipeline();
+    setPipelineResult('Pipeline in esecuzione…', '');
+    try {
+      for (let i = 0; i < validated.length; i++) {
+        const { step, params } = validated[i];
+        const title = TYPE_INFO[step.type].title;
+        setPipelineResult(`Operazione ${i + 1}/${validated.length}: ${title}`);
+        try {
+          const result = TYPE_INFO[step.type].kind === 'gripper'
+            ? await executeGripper(step, params)
+            : MOVE_TYPES.filter(type => type.startsWith('moveit_')).includes(step.type)
+              ? await executeMoveIt(step, params)
+              : await executeDirectStep(step, params);
+          stepResult(step, String(result), true);
+        } catch (error) {
+          stepResult(step, error.message, false);
+          throw new Error(`${title}: ${error.message}`);
+        }
+      }
+      setPipelineResult('Pipeline completata.', 'good');
+    } catch (error) {
+      setPipelineResult(`Pipeline interrotta: ${error.message}`, 'error');
+    } finally {
+      running = false;
+      renderPipeline();
+      refreshRobotStatus();
+    }
+  }
+  async function executeDirectStep(step, p) {
+    const value = (...names) => names.map(name => p[name]);
+    switch (step.type) {
+      case 'cartesian_pose': return JSON.stringify(await executeDirectMotion('api/motion-cartesian/move', { x:p.x, y:p.y, z:p.z, roll:p.roll, pitch:p.pitch, yaw:p.yaw, speed_factor:p.speed_factor, tolerance:p.tolerance, orientation_tolerance:p.orientation_tolerance }));
+      case 'cartesian_relative': return JSON.stringify(await executeDirectMotion('api/motion-cartesian/move-relative', { dx:p.dx, dy:p.dy, dz:p.dz, droll:p.droll, dpitch:p.dpitch, dyaw:p.dyaw, speed_factor:p.speed_factor, tolerance:p.tolerance }));
+      case 'joint_absolute': return JSON.stringify(await executeDirectMotion('api/motion-position-control/move', { positions:value(...JOINT_LABELS.map((_, i) => `q${i}`)), speed_factor:p.speed_factor, tolerance:p.tolerance }));
+      case 'joint_relative': return JSON.stringify(await executeDirectMotion('api/motion-position-control/move-relative', { deltas:value(...JOINT_LABELS.map((_, i) => `d${i}`)), speed_factor:p.speed_factor }));
+      default: throw new Error('Tipo di movimento non supportato.');
+    }
+  }
+  refreshRobotStatus();
+  setInterval(refreshRobotStatus, 3000);
+  renderPipeline();
+</script>
+</body>
+</html>

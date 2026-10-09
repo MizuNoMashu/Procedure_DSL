@@ -169,6 +169,11 @@ def cobot_page():
     return render_template('cobot.html')
 
 
+@api_ui_bp.route('/trajectory-builder', methods=['GET'])
+def trajectory_builder_page():
+    return render_template('trajectory_builder.html')
+
+
 _LONG_TIMEOUT_PATHS = {'api/desk/prepare-and-connect', 'api/desk/prepare-fci'}
 
 @api_ui_bp.route('/cobot-proxy/<path:path>', methods=['GET', 'POST', 'DELETE'])
