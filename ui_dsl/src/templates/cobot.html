@@ -350,6 +350,67 @@
           <div class="result-line" id="rel-result"></div>
         </div>
 
+        <!-- Single Cartesian motion through cobot API -->
+        <div class="panel">
+          <h3>Move to Cartesian Pose</h3>
+          <p style="font-size:0.72rem;color:#888;margin-bottom:8px">
+            Invia una singola posa cartesiana direttamente al servizio cobot.
+            Coordinate in metri, orientamento RPY in radianti.
+          </p>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>X (m)</label>
+              <input type="number" id="cart-x" step="0.001" value="0.4" style="width:90px">
+            </div>
+            <div class="col">
+              <label>Y (m)</label>
+              <input type="number" id="cart-y" step="0.001" value="0.0" style="width:90px">
+            </div>
+            <div class="col">
+              <label>Z (m)</label>
+              <input type="number" id="cart-z" step="0.001" value="0.4" style="width:90px">
+            </div>
+          </div>
+          <div class="param-row">
+            <label>Roll</label>
+            <input type="range" id="cart-roll-s" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('cart-roll-s','cart-roll-n')">
+            <input type="number" class="param-num" id="cart-roll-n" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('cart-roll-n','cart-roll-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="param-row">
+            <label>Pitch</label>
+            <input type="range" id="cart-pitch-s" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('cart-pitch-s','cart-pitch-n')">
+            <input type="number" class="param-num" id="cart-pitch-n" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('cart-pitch-n','cart-pitch-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="param-row">
+            <label>Yaw</label>
+            <input type="range" id="cart-yaw-s" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('cart-yaw-s','cart-yaw-n')">
+            <input type="number" class="param-num" id="cart-yaw-n" min="-3.1416" max="3.1416" step="0.01" value="0" oninput="sync('cart-yaw-n','cart-yaw-s')">
+            <span class="param-unit">rad</span>
+          </div>
+          <div class="param-row">
+            <label>Speed factor</label>
+            <input type="range" id="cart-speed-s" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('cart-speed-s','cart-speed-n')">
+            <input type="number" class="param-num" id="cart-speed-n" min="0.01" max="1" step="0.01" value="0.2" oninput="sync('cart-speed-n','cart-speed-s')">
+            <span class="param-unit">0–1</span>
+          </div>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>Position tolerance (m)</label>
+              <input type="number" id="cart-tolerance" min="0.001" step="0.001" value="0.01" style="width:120px">
+            </div>
+            <div class="col">
+              <label>Orientation tolerance (rad)</label>
+              <input type="number" id="cart-orientation-tolerance" min="0.001" step="0.001" value="0.05" style="width:145px">
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" onclick="moveCartesianPose()">Move Cartesian</button>
+          </div>
+          <div class="result-line" id="cart-result"></div>
+        </div>
+
         <!-- MoveIt: plan a cartesian pose, then execute the planned trajectory on cobot -->
         <div class="panel">
           <h3>MoveIt Plan → Execute (cartesian pose)</h3>
@@ -402,6 +463,47 @@
           </div>
           <div class="result-line" id="mv-plan-result"></div>
           <div class="state-box" id="mv-plan-box"></div>
+        </div>
+
+        <!-- MoveIt-guided grasp and transport workflow -->
+        <div class="panel">
+          <h3>Pick &amp; Place guidato da MoveIt</h3>
+          <p style="font-size:0.72rem;color:#888;margin-bottom:8px">
+            Inizializza e apre il gripper, pianifica e raggiunge la presa, afferra l'oggetto,
+            verifica la presa, pianifica/raggiunge la destinazione e infine apre il gripper.
+            Le orientazioni RPY sono configurabili separatamente per presa e destinazione.
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:8px;margin-bottom:10px">
+            <strong style="grid-column:1/-1;font-size:0.78rem;color:#555">Posizione iniziale oggetto (m)</strong>
+            <div class="col"><label>X</label><input type="number" id="pp-start-x" step="0.001" value="0.4"></div>
+            <div class="col"><label>Y</label><input type="number" id="pp-start-y" step="0.001" value="0.0"></div>
+            <div class="col"><label>Z</label><input type="number" id="pp-start-z" step="0.001" value="0.4"></div>
+            <div class="col"><label>Roll (rad)</label><input type="number" id="pp-start-roll" min="-3.1416" max="3.1416" step="0.01" value="0"></div>
+            <div class="col"><label>Pitch (rad)</label><input type="number" id="pp-start-pitch" min="-3.1416" max="3.1416" step="0.01" value="0"></div>
+            <div class="col"><label>Yaw (rad)</label><input type="number" id="pp-start-yaw" min="-3.1416" max="3.1416" step="0.01" value="0"></div>
+            <strong style="grid-column:1/-1;font-size:0.78rem;color:#555;margin-top:4px">Posizione finale oggetto (m)</strong>
+            <div class="col"><label>X</label><input type="number" id="pp-end-x" step="0.001" value="0.4"></div>
+            <div class="col"><label>Y</label><input type="number" id="pp-end-y" step="0.001" value="0.2"></div>
+            <div class="col"><label>Z</label><input type="number" id="pp-end-z" step="0.001" value="0.4"></div>
+            <div class="col"><label>Roll (rad)</label><input type="number" id="pp-end-roll" min="-3.1416" max="3.1416" step="0.01" value="0"></div>
+            <div class="col"><label>Pitch (rad)</label><input type="number" id="pp-end-pitch" min="-3.1416" max="3.1416" step="0.01" value="0"></div>
+            <div class="col"><label>Yaw (rad)</label><input type="number" id="pp-end-yaw" min="-3.1416" max="3.1416" step="0.01" value="0"></div>
+          </div>
+          <div class="row">
+            <div class="col">
+              <label>Larghezza oggetto / apertura grasp (mm, max 80)</label>
+              <input type="number" id="pp-object-width" min="0" max="80" step="1" value="40" style="width:150px">
+            </div>
+            <div class="col">
+              <label>Forza grasp (N, max 140)</label>
+              <input type="number" id="pp-object-force" min="1" max="140" step="1" value="60" style="width:130px">
+            </div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="primary" id="pp-moveit-run-btn" style="background:#1a5c1a;border-color:#1a5c1a" onclick="runMoveItPickAndPlace()">Avvia sequenza completa</button>
+          </div>
+          <div class="result-line" id="pp-moveit-result" aria-live="polite"></div>
+          <div class="state-box" id="pp-moveit-plan-box" aria-live="polite"></div>
         </div>
 
         <!-- Impedance -->
@@ -800,7 +902,7 @@
     setResult('home-result', data, ok);
   }
   async function moveJoints() {
-    const { ok, data } = await cf('POST', 'api/motion/move-joints', {
+    const { ok, data } = await cf('POST', 'api/motion-position-control/move', {
       positions: getJointVals('jp'),
       speed_factor: n('joints-speed-n'),
       tolerance: n('joints-tol-n'),
@@ -808,14 +910,42 @@
     setResult('joints-result', data, ok);
   }
   async function moveRelative() {
-    const { ok, data } = await cf('POST', 'api/motion/move-relative', {
+    const { ok, data } = await cf('POST', 'api/motion-position-control/move-relative', {
       deltas: getJointVals('jd'),
       speed_factor: n('rel-speed-n'),
     });
     setResult('rel-result', data, ok);
   }
+  async function moveCartesianPose() {
+    const fields = [
+      ['cart-x', 'X'], ['cart-y', 'Y'], ['cart-z', 'Z'],
+      ['cart-roll-n', 'Roll'], ['cart-pitch-n', 'Pitch'], ['cart-yaw-n', 'Yaw'],
+      ['cart-speed-n', 'Speed factor'], ['cart-tolerance', 'Position tolerance'],
+      ['cart-orientation-tolerance', 'Orientation tolerance'],
+    ];
+    for (const [id, label] of fields) {
+      const value = n(id);
+      if (!Number.isFinite(value)) {
+        setResult('cart-result', { error: `${label}: inserire un valore numerico valido.` }, false);
+        return;
+      }
+    }
+
+    const { ok, data } = await cf('POST', 'api/motion-cartesian/move', {
+      x: n('cart-x'),
+      y: n('cart-y'),
+      z: n('cart-z'),
+      roll: n('cart-roll-n'),
+      pitch: n('cart-pitch-n'),
+      yaw: n('cart-yaw-n'),
+      speed_factor: n('cart-speed-n'),
+      tolerance: n('cart-tolerance'),
+      orientation_tolerance: n('cart-orientation-tolerance'),
+    });
+    setResult('cart-result', data, ok);
+  }
   async function runImpedance() {
-    const { ok, data } = await cf('POST', 'api/motion/impedance', {
+    const { ok, data } = await cf('POST', 'api/motion-position-control/move-impedance', {
       positions: getJointVals('ji'),
       duration: n('imp-dur-n'),
     });
@@ -889,6 +1019,209 @@
       speed_factor: n('mv-speed-n'),
     });
     setResult('mv-plan-result', data, ok);
+  }
+
+  function setMoveItWorkflowStatus(message, ok = true) {
+    setResult('pp-moveit-result', { status: message }, ok);
+    logInfo(message);
+  }
+
+  function workflowNumber(id, label) {
+    const raw = document.getElementById(id).value.trim();
+    const value = Number(raw);
+    if (raw === '' || !Number.isFinite(value)) throw new Error(`${label}: inserire un valore numerico valido.`);
+    return value;
+  }
+
+  let _moveItWorkflowPlans = [];
+
+  async function waitForCobotIdle(timeoutMs = 240000) {
+    const startedAt = Date.now();
+    let idleSamples = 0;
+    // Lascia al thread asincrono del cobot il tempo di acquisire il lock.
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    while (Date.now() - startedAt < timeoutMs) {
+      let response;
+      try {
+        response = await fetch(`${PROXY}/api/robot/status`);
+      } catch (error) {
+        throw new Error(`Errore durante il controllo dello stato cobot: ${error.message}`);
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Impossibile leggere lo stato del cobot.');
+
+      if (data.busy) {
+        idleSamples = 0;
+      } else if (++idleSamples >= 2) {
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    throw new Error('Timeout in attesa del completamento dell’operazione sul cobot.');
+  }
+
+  async function readRealJointPositions() {
+    const { ok, data } = await cf('GET', 'api/robot/state');
+    if (!ok || !Array.isArray(data.joint_positions) || data.joint_positions.length !== FR3_JOINT_NAMES.length) {
+      throw new Error(data.error || 'Impossibile leggere le 7 posizioni articolari reali del cobot.');
+    }
+    return Object.fromEntries(data.joint_positions.map((value, i) => [FR3_JOINT_NAMES[i], value]));
+  }
+
+  async function planAndExecuteWorkflowPose(position, label, speedFactor, rpy) {
+    setMoveItWorkflowStatus(`${label}: lettura stato reale e pianificazione MoveIt…`);
+    const start_joint_positions = await readRealJointPositions();
+    const planned = await mf('POST', 'moveit/plan-pose', {
+      position,
+      rpy,
+      speed_factor: speedFactor,
+      start_joint_positions,
+    });
+    const points = planned.data && planned.data.trajectory && planned.data.trajectory.points;
+    if (!planned.ok || !planned.data.success || !Array.isArray(points) || points.length === 0) {
+      showState('pp-moveit-plan-box', {
+        plans: _moveItWorkflowPlans,
+        error: planned.data && (planned.data.error || planned.data.error_name)
+          ? (planned.data.error || planned.data.error_name)
+          : `MoveIt non ha trovato un piano per ${label}.`,
+      }, false, false);
+      throw new Error((planned.data && (planned.data.error || planned.data.error_name)) || `MoveIt non ha trovato un piano per ${label}.`);
+    }
+
+    const waypoints = points.map(point => point.positions);
+    _moveItWorkflowPlans.push({
+      target: label,
+      joint_names: planned.data.trajectory.joint_names,
+      positions: waypoints,
+    });
+    showState('pp-moveit-plan-box', {
+      description: 'Waypoint articolari restituiti da MoveIt (rad), nell’ordine joint_names.',
+      plans: _moveItWorkflowPlans,
+    }, true, true);
+
+    setMoveItWorkflowStatus(`${label}: esecuzione traiettoria (${points.length} waypoint)…`);
+    const execution = await cf('POST', 'api/motion/execute-trajectory', {
+      waypoints,
+      speed_factor: speedFactor,
+    });
+    if (!execution.ok) throw new Error(execution.data.error || `Il cobot ha rifiutato la traiettoria per ${label}.`);
+    await waitForCobotIdle();
+
+    // Il servizio risponde 202: controlla anche che il robot sia arrivato al waypoint finale
+    // prima di proseguire con la presa o con la fase successiva.
+    const actual = await readRealJointPositions();
+    const finalPositions = waypoints[waypoints.length - 1];
+    const maxJointError = Math.max(...finalPositions.map((value, i) =>
+      Math.abs(value - actual[FR3_JOINT_NAMES[i]])));
+    if (maxJointError > 0.1) {
+      throw new Error(`${label}: il cobot non risulta arrivato al waypoint finale (errore articolare ${maxJointError.toFixed(3)} rad).`);
+    }
+  }
+
+  async function runMoveItPickAndPlace() {
+    const button = document.getElementById('pp-moveit-run-btn');
+    if (button.disabled) return;
+
+    let startPosition;
+    let endPosition;
+    let objectWidth;
+    let graspForce;
+    let speedFactor;
+    let startRpy;
+    let endRpy;
+    try {
+      startPosition = {
+        x: workflowNumber('pp-start-x', 'X iniziale'),
+        y: workflowNumber('pp-start-y', 'Y iniziale'),
+        z: workflowNumber('pp-start-z', 'Z iniziale'),
+      };
+      endPosition = {
+        x: workflowNumber('pp-end-x', 'X finale'),
+        y: workflowNumber('pp-end-y', 'Y finale'),
+        z: workflowNumber('pp-end-z', 'Z finale'),
+      };
+      objectWidth = workflowNumber('pp-object-width', 'Larghezza oggetto');
+      graspForce = workflowNumber('pp-object-force', 'Forza grasp');
+      speedFactor = workflowNumber('mv-speed-n', 'Speed factor');
+      startRpy = [
+        workflowNumber('pp-start-roll', 'Roll presa'),
+        workflowNumber('pp-start-pitch', 'Pitch presa'),
+        workflowNumber('pp-start-yaw', 'Yaw presa'),
+      ];
+      endRpy = [
+        workflowNumber('pp-end-roll', 'Roll destinazione'),
+        workflowNumber('pp-end-pitch', 'Pitch destinazione'),
+        workflowNumber('pp-end-yaw', 'Yaw destinazione'),
+      ];
+      if (objectWidth < 0 || objectWidth > 80) throw new Error('La larghezza deve essere compresa tra 0 e 80 mm.');
+      if (graspForce <= 0 || graspForce > 140) throw new Error('La forza deve essere maggiore di 0 e non superiore a 140 N.');
+      if (speedFactor < 0.01 || speedFactor > 1) throw new Error('Lo speed factor deve essere compreso tra 0.01 e 1.');
+      if ([...startRpy, ...endRpy].some(angle => angle < -Math.PI || angle > Math.PI)) {
+        throw new Error('Roll, Pitch e Yaw devono essere compresi tra -π e π rad.');
+      }
+    } catch (error) {
+      setMoveItWorkflowStatus(error.message, false);
+      return;
+    }
+
+    const confirmed = confirm(
+      `Avviare la sequenza completa? Il cobot si muoverà realmente.\n\n` +
+      `Presa: [${startPosition.x}, ${startPosition.y}, ${startPosition.z}] m\n` +
+      `Destinazione: [${endPosition.x}, ${endPosition.y}, ${endPosition.z}] m\n` +
+      `Orientamento presa RPY: [${startRpy.join(', ')}] rad\n` +
+      `Orientamento destinazione RPY: [${endRpy.join(', ')}] rad\n` +
+      `Grasp: ${objectWidth} mm, ${graspForce} N\n` +
+      'Al termine il gripper rilascerà l’oggetto.'
+    );
+    if (!confirmed) return;
+
+    button.disabled = true;
+    _moveItWorkflowPlans = [];
+    showState('pp-moveit-plan-box', { plans: [] }, true, true);
+    try {
+      setMoveItWorkflowStatus('Fase 1/6: homing e inizializzazione del gripper…');
+      const homing = await cf('POST', 'api/gripper/home');
+      if (!homing.ok) throw new Error(homing.data.error || 'Homing del gripper rifiutato.');
+      await waitForCobotIdle(30000);
+
+      // L'apertura conferma che il gripper è operativo e pronto per il grasp.
+      const opening = await cf('POST', 'api/gripper/open', { width_mm: 80, speed: 0.1 });
+      if (!opening.ok || opening.data.success !== true) {
+        throw new Error(opening.data.error || 'Inizializzazione/apertura del gripper non riuscita.');
+      }
+
+      await planAndExecuteWorkflowPose(startPosition, 'Fase 2/6: raggiungimento posizione di presa', speedFactor, startRpy);
+
+      setMoveItWorkflowStatus('Fase 3/6: presa oggetto con il gripper…');
+      const grasp = await cf('POST', 'api/gripper/grasp', {
+        width_mm: objectWidth,
+        force: graspForce,
+        speed: 0.1,
+      });
+      if (!grasp.ok || grasp.data.success !== true) {
+        throw new Error(grasp.data.error || 'Il gripper non ha confermato la presa; sequenza interrotta.');
+      }
+      const gripperState = await cf('GET', 'api/gripper/state');
+      if (!gripperState.ok || gripperState.data.is_grasped !== true) {
+        throw new Error('Presa non confermata dallo stato del gripper; spostamento alla destinazione annullato.');
+      }
+
+      await planAndExecuteWorkflowPose(endPosition, 'Fase 4/6: trasporto alla posizione finale', speedFactor, endRpy);
+
+      setMoveItWorkflowStatus('Fase 5/6: apertura del gripper e rilascio oggetto…');
+      const release = await cf('POST', 'api/gripper/release');
+      if (!release.ok || release.data.success !== true) {
+        throw new Error(release.data.error || 'Apertura del gripper/rilascio dell’oggetto non riuscita.');
+      }
+
+      setMoveItWorkflowStatus('Fase 6/6: sequenza completata. Oggetto rilasciato alla destinazione.');
+    } catch (error) {
+      setMoveItWorkflowStatus(`Sequenza interrotta: ${error.message}`, false);
+    } finally {
+      button.disabled = false;
+      refreshStatus();
+    }
   }
 
   async function setCollisionBehavior() {
