@@ -428,7 +428,7 @@ async function cobotFetch(method, path, body) {
   }
   const r = await fetch('/cobot-proxy/' + path, opts);
   const data = await r.json().catch(() => ({}));
-  return { ok: r.ok, data };
+  return { ok: r.ok, status: r.status, data };
 }
 
 function setSetupResult(text, ok) {
@@ -470,20 +470,33 @@ async function setupConnectDesk() {
   } catch(e) { setSetupResult(e.message, false); }
 }
 
+let _setupPreparing = false;
 async function setupPrepareAndConnect() {
+  if (_setupPreparing) return;
+  _setupPreparing = true;
+  const btns = document.querySelectorAll('button[onclick^="setupPrepareAndConnect"]');
+  btns.forEach(b => { b.disabled = true; });
   setSetupResult('Connecting to Desk API…', true);
   try {
     const r1 = await cobotFetch('POST', 'api/desk/connect', deskConnectBody());
     if (!r1.ok) { setSetupResult(r1.data.error || 'Desk connect failed', false); return; }
     setSetupResult('Desk connected — unlocking joints, activating FCI, connecting robot…', true);
     const r2 = await cobotFetch('POST', 'api/desk/prepare-and-connect');
-    setSetupResult(
-      r2.ok ? 'Robot ready — joints unlocked, FCI active, pylibfranka connected'
-             : (r2.data.error || 'Prepare failed'),
-      r2.ok
-    );
+    if (r2.status === 409) {
+      setSetupResult(r2.data.error || 'Preparation already in progress — please wait', true);
+    } else {
+      setSetupResult(
+        r2.ok ? 'Robot ready — joints unlocked, FCI active, pylibfranka connected'
+              : (r2.data.error || 'Prepare failed'),
+        r2.ok
+      );
+    }
     checkCobotStatus();
   } catch(e) { setSetupResult(e.message, false); }
+  finally {
+    _setupPreparing = false;
+    btns.forEach(b => { b.disabled = false; });
+  }
 }
 
 async function setupDisconnect() {
