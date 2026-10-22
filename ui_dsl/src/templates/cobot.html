@@ -187,6 +187,25 @@
       </label>
     </div>
 
+    <!-- ── Recovery guidato (visibile solo con mode == error_locked) ── -->
+    <div class="panel" id="recovery-banner" style="display:none;border:2px solid #c62828;background:#fff5f5">
+      <div class="row" style="margin-top:0;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0;color:#c62828">Robot in ERROR_LOCKED</h2>
+        <span class="spacer"></span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem">Velocità home
+          <input type="number" id="rec-home-speed" min="0.01" max="1" step="0.01" value="0.15" style="width:70px">
+        </label>
+        <button class="primary" id="recovery-run-btn" style="background:#c62828;border-color:#c62828" onclick="recoverToHome()">Recovery + Home</button>
+      </div>
+      <div class="result-line err" id="recovery-last-error" style="white-space:pre-wrap"></div>
+      <p style="font-size:0.72rem;color:#777;margin:6px 0">
+        Sequenza: recovery automatico → (se fallisce) conferma safety recovery e preparazione FCI da Desk →
+        recovery automatico → (se fallisce) disconnessione e riconnessione → movimento verso la posizione home
+        (con conferma prima di muovere il robot).
+      </p>
+      <div class="state-box neutral" id="recovery-steps" style="display:none;white-space:pre-wrap"></div>
+    </div>
+
     <!-- ── Live robot state and operation telemetry ── -->
     <div class="panel" id="live-telemetry-panel">
       <div class="row" style="margin-top:0">
@@ -556,9 +575,19 @@
               Usata solo per eseguire traiettorie MoveIt; ridurla aumenta la velocità e può causare arresti per limiti/collisioni. Prova gradualmente in condizioni sicure.
             </span>
           </div>
-          <div class="row" style="margin-top:10px;gap:6px">
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>Raggio zona di raccordo Fly (rad)</label>
+              <input type="number" id="mv-blend-radius" min="0" max="1" step="0.01" value="0.15" style="width:145px">
+            </div>
+            <span style="font-size:0.72rem;color:#888;max-width:420px">
+              Solo per Fly Motion: attorno ai punti intermedi il robot curva senza fermarsi. 0 = nessun raccordo.
+            </span>
+          </div>
+          <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
             <button class="primary" onclick="planMoveItPose()">Plan</button>
-            <button class="primary" id="mv-execute-btn" style="background:#1a5c1a;border-color:#1a5c1a" disabled onclick="executePlannedTrajectory()">Execute on Cobot</button>
+            <button class="primary" id="mv-execute-btn" style="background:#1a5c1a;border-color:#1a5c1a" disabled onclick="executePlannedTrajectory()" title="Si ferma a ogni waypoint (stop-and-go)">Execute point-to-point</button>
+            <button class="primary" id="mv-fly-btn" style="background:#0b5a7a;border-color:#0b5a7a" disabled onclick="executePlannedTrajectoryFly()" title="Percorso continuo, senza fermarsi nei punti intermedi">Execute Fly Motion</button>
           </div>
           <div class="result-line" id="mv-plan-result"></div>
           <div class="state-box" id="mv-plan-box"></div>
@@ -584,9 +613,16 @@
               <input type="number" id="mv-joint-segment-duration" min="0.5" max="30" step="0.1" value="0.7" style="width:145px">
             </div>
           </div>
-          <div class="row" style="margin-top:10px;gap:6px">
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col">
+              <label>Raggio zona di raccordo Fly (rad)</label>
+              <input type="number" id="mv-joint-blend-radius" min="0" max="1" step="0.01" value="0.15" style="width:145px">
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
             <button class="primary" onclick="planMoveItJoints()">Plan joints</button>
-            <button class="primary" id="mv-joint-execute-btn" style="background:#1a5c1a;border-color:#1a5c1a" disabled onclick="executeJointPlannedTrajectory()">Execute on Cobot</button>
+            <button class="primary" id="mv-joint-execute-btn" style="background:#1a5c1a;border-color:#1a5c1a" disabled onclick="executeJointPlannedTrajectory()" title="Si ferma a ogni waypoint (stop-and-go)">Execute point-to-point</button>
+            <button class="primary" id="mv-joint-fly-btn" style="background:#0b5a7a;border-color:#0b5a7a" disabled onclick="executeJointPlannedTrajectoryFly()" title="Percorso continuo, senza fermarsi nei punti intermedi">Execute Fly Motion</button>
           </div>
           <div class="result-line" id="mv-joint-plan-result"></div>
           <div class="state-box" id="mv-joint-plan-box"></div>
@@ -631,6 +667,78 @@
           </div>
           <div class="result-line" id="pp-moveit-result" aria-live="polite"></div>
           <div class="state-box" id="pp-moveit-plan-box" aria-live="polite"></div>
+        </div>
+
+        <!-- Force control: spinta, inserimento, avvitamento -->
+        <div class="panel">
+          <h3>Force control (spinta · inserimento · avvitamento)</h3>
+          <p style="font-size:0.72rem;color:#888;margin-bottom:8px">
+            Torque control: forza controllata lungo l'asse z del tool, impedenza nelle altre direzioni.
+            Il robot si avvicina piano fino al contatto, porta la forza al valore richiesto in modo graduale
+            e, se l'obiettivo non è raggiungibile (blocco, timeout, coppia massima), rilascia la forza e riporta l'errore.
+            Una forza oltre il limite di sicurezza ferma il robot.
+          </p>
+          <div class="row" style="flex-wrap:wrap">
+            <div class="col"><label>Forza (N, max 40)</label>
+              <input type="number" id="ft-force" min="1" max="40" step="0.5" value="10" style="width:100px"></div>
+            <div class="col"><label>Avvicinamento (m/s)</label>
+              <input type="number" id="ft-approach" min="0" max="0.05" step="0.005" value="0.01" style="width:110px"></div>
+            <div class="col"><label>Corsa max senza contatto (mm)</label>
+              <input type="number" id="ft-approach-dist" min="1" max="300" step="1" value="50" style="width:140px"></div>
+            <div class="col"><label>Cedevolezza laterale (N/m)</label>
+              <input type="number" id="ft-lateral-k" min="10" max="2000" step="10" value="300" style="width:130px"></div>
+          </div>
+          <div class="row" style="flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+            <strong style="font-size:0.78rem;color:#555;width:100%">Spinta</strong>
+            <div class="col"><label>Mantieni per (s)</label>
+              <input type="number" id="ft-hold" min="0.5" max="600" step="0.5" value="5" style="width:100px"></div>
+            <button class="primary" onclick="runForceApply()">Press</button>
+          </div>
+          <div class="row" style="flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+            <strong style="font-size:0.78rem;color:#555;width:100%">Inserimento</strong>
+            <div class="col"><label>Profondità dal contatto (mm)</label>
+              <input type="number" id="ft-depth" min="0.5" max="200" step="0.5" value="10" style="width:130px"></div>
+            <div class="col"><label>Timeout (s)</label>
+              <input type="number" id="ft-max-time" min="1" max="600" step="1" value="30" style="width:90px"></div>
+            <button class="primary" onclick="runForceInsert()">Insert</button>
+          </div>
+          <div class="row" style="flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+            <strong style="font-size:0.78rem;color:#555;width:100%">Avvitamento (rotazione del giunto 7, max ~±5 rad per passata)</strong>
+            <div class="col"><label>Angolo (rad, + = destrorso)</label>
+              <input type="number" id="ft-angle" min="-6" max="6" step="0.1" value="2" style="width:120px"></div>
+            <div class="col"><label>Velocità (rad/s)</label>
+              <input type="number" id="ft-ang-speed" min="0.05" max="1" step="0.05" value="0.3" style="width:100px"></div>
+            <div class="col"><label>Coppia max (Nm, max 6)</label>
+              <input type="number" id="ft-max-torque" min="0.1" max="6" step="0.1" value="2" style="width:110px"></div>
+            <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;padding-bottom:6px">
+              <input type="checkbox" id="ft-stop-torque"> coppia max = obiettivo (serraggio)</label>
+            <button class="primary" onclick="runForceScrew()">Screw</button>
+          </div>
+          <div class="row" style="flex-wrap:wrap;align-items:flex-end;margin-top:6px">
+            <span style="font-size:0.72rem;color:#888;width:100%">
+              L'angolo è PER PASSATA (max ~5.9 rad). Con più passate l'operazione resta unica: tra una passata e l'altra
+              il giunto 7 viene riportato a vuoto all'estremo opposto con la ripresa scelta. Rotazione totale = passate × angolo.
+            </span>
+            <div class="col"><label>Passate</label>
+              <input type="number" id="ft-passes" min="1" max="20" step="1" value="1" style="width:70px" oninput="updateScrewRegrasp()"></div>
+            <div class="col"><label>Ripresa tra le passate</label>
+              <select id="ft-regrasp-mode" onchange="updateScrewRegrasp()">
+                <option value="gripper">Gripper: apri, riavvolgi, richiudi</option>
+                <option value="retract">Cacciavite: arretra, riavvolgi</option>
+                <option value="none">Solo riavvolgimento (cricchetto)</option>
+              </select></div>
+            <div class="col ft-gripper"><label>Presa sulla vite (mm)</label>
+              <input type="number" id="ft-grasp-width" min="0" max="80" step="0.5" value="8" style="width:90px"></div>
+            <div class="col ft-gripper"><label>Apertura (mm)</label>
+              <input type="number" id="ft-open-width" min="1" max="80" step="1" value="20" style="width:80px"></div>
+            <div class="col ft-gripper"><label>Forza presa (N)</label>
+              <input type="number" id="ft-grasp-force" min="1" max="140" step="1" value="40" style="width:80px"></div>
+            <div class="col ft-retract"><label>Arretramento (mm)</label>
+              <input type="number" id="ft-retract" min="1" max="50" step="1" value="5" style="width:80px"></div>
+            <div class="col"><label>Riavvolgimento (rad/s)</label>
+              <input type="number" id="ft-rewind-speed" min="0.05" max="2" step="0.05" value="1" style="width:100px"></div>
+          </div>
+          <div class="result-line" id="ft-result" aria-live="polite"></div>
         </div>
 
         <!-- Impedance -->
@@ -932,7 +1040,7 @@
         _uiRequestedOperation = data.operation || path;
         logInfo(`Operazione accettata: ${data.operation || path}`);
       }
-      return { ok: r.ok, data };
+      return { ok: r.ok, status: r.status, data };
     } catch(e) {
       log(method, path, false, { error: e.message });
       return { ok: false, data: { error: e.message } };
@@ -991,6 +1099,7 @@
       const connected = status.connected === true;
       const busy = status.busy === true;
       const faulted = status.mode === 'error_locked';
+      updateRecoveryBanner(faulted);
       const dot = document.getElementById('conn-dot');
       dot.className = `dot ${faulted ? 'fault' : (connected ? (busy ? 'busy' : 'online') : 'offline')}`;
       document.getElementById('status-text').textContent = !connected
@@ -1119,6 +1228,158 @@
     const { ok, data } = await cf('POST', 'api/robot/recovery');
     setResult('conn-result', data, ok);
     refreshStatus();
+  }
+
+  // ── Recovery guidato: ERROR_LOCKED → automatico → Desk → riconnessione → home ──
+  let _recoveryRunning = false;
+  let _recoveryErrorLoaded = false;
+
+  function recoveryLog(message, ok = true) {
+    const box = document.getElementById('recovery-steps');
+    box.style.display = '';
+    box.textContent += `${ts()} ${ok ? '✓' : '✗'} ${message}\n`;
+    logInfo(`Recovery: ${message}`);
+  }
+
+  async function loadLastRobotError() {
+    const el = document.getElementById('recovery-last-error');
+    const { ok, data } = await cf('GET', 'api/robot/errors');
+    const errors = ok && Array.isArray(data.errors) ? data.errors : [];
+    const last = errors[errors.length - 1];
+    el.textContent = last
+      ? `Ultimo errore: [${last.type}] ${last.message}\nOperazione: ${last.operation} · ${last.recoverable ? 'recuperabile' : 'non recuperabile in automatico'} · ${last.timestamp}`
+      : 'Nessun errore registrato dal servizio (il blocco può arrivare dal firmware: controlla Desk).';
+  }
+
+  function updateRecoveryBanner(faulted) {
+    const banner = document.getElementById('recovery-banner');
+    banner.style.display = (faulted || _recoveryRunning) ? '' : 'none';
+    if (faulted && !_recoveryErrorLoaded) {
+      _recoveryErrorLoaded = true;
+      loadLastRobotError();
+    } else if (!faulted && !_recoveryRunning) {
+      _recoveryErrorLoaded = false;
+      document.getElementById('recovery-steps').textContent = '';
+      document.getElementById('recovery-steps').style.display = 'none';
+    }
+  }
+
+  async function robotStatusNow() {
+    const response = await fetch(`${PROXY}/api/robot/status`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Stato del cobot non disponibile.');
+    return data;
+  }
+
+  async function recoveryAutomatic() {
+    recoveryLog('Recovery automatico (libfranka)…');
+    const { ok, data } = await cf('POST', 'api/robot/recovery');
+    const success = ok && data.success === true;
+    recoveryLog(success ? 'Recovery automatico riuscito.' : (data.error || 'Recovery automatico non riuscito.'), success);
+    return success;
+  }
+
+  async function recoveryViaDesk() {
+    recoveryLog('Provo con Desk: safety recovery e preparazione FCI.');
+    const rec = await cf('GET', 'api/desk/safety/recovery');
+    if (!rec.ok) {
+      throw new Error(rec.data.error || 'Desk API non raggiungibile (serve la connessione Desk del cobot).');
+    }
+    if (rec.data.active) {
+      const detail = JSON.stringify(rec.data.recovery);
+      if (!confirm(`Desk segnala un recovery di sicurezza attivo:\n${detail}\n\nConfermarlo? Verifica che l'area attorno al robot sia libera e che la causa sia rimossa.`)) {
+        throw new Error('Recovery di sicurezza non confermato dall’utente.');
+      }
+      let type = rec.data.recovery && (rec.data.recovery.type || rec.data.recovery.name);
+      if (!type) {
+        type = prompt('Tipo di recovery da confermare (es. SafetyError, JointLimitViolation, JointPositionError):', 'SafetyError');
+        if (!type) throw new Error('Tipo di recovery non indicato.');
+      }
+      const confirmed = await cf('POST', 'api/desk/safety/recovery/confirm', { type });
+      if (!confirmed.ok) {
+        throw new Error(confirmed.data.error || 'Conferma del recovery rifiutata (alcuni tipi richiedono il ruolo safety operator in Desk).');
+      }
+      recoveryLog(`Recovery di sicurezza "${type}" confermato.`);
+    } else {
+      recoveryLog('Nessun recovery di sicurezza attivo su Desk.');
+    }
+    recoveryLog('Preparazione FCI da Desk (può richiedere fino a 2 minuti)…');
+    const prep = await cf('POST', 'api/desk/prepare-fci');
+    if (!prep.ok) throw new Error(prep.data.error || 'Preparazione FCI da Desk fallita.');
+    recoveryLog('FCI pronta.');
+  }
+
+  async function recoveryReconnect() {
+    recoveryLog('Riconnessione: disconnessione, preparazione Desk e nuova connessione (può richiedere fino a 2 minuti)…');
+    const status = await robotStatusNow();
+    if (status.connected) {
+      const disconnected = await cf('POST', 'api/robot/disconnect');
+      if (!disconnected.ok) throw new Error(disconnected.data.error || 'Disconnessione fallita.');
+    }
+    const reconnected = await cf('POST', 'api/desk/prepare-and-connect', {
+      enforce_realtime: document.getElementById('enforce-rt').checked,
+    });
+    if (!reconnected.ok) {
+      throw new Error(reconnected.data.message || reconnected.data.error || 'Riconnessione fallita.');
+    }
+    recoveryLog('Riconnesso.');
+  }
+
+  async function recoverToHome() {
+    if (_recoveryRunning) return;
+    const speed = n('rec-home-speed');
+    if (!Number.isFinite(speed) || speed < 0.01 || speed > 1) {
+      recoveryLog('La velocità verso home deve essere compresa tra 0.01 e 1.', false);
+      return;
+    }
+    _recoveryRunning = true;
+    const button = document.getElementById('recovery-run-btn');
+    button.disabled = true;
+    document.getElementById('recovery-steps').textContent = '';
+
+    try {
+      let status = await robotStatusNow();
+      if (status.busy) throw new Error('Il robot è occupato: attendere la fine dell’operazione corrente.');
+
+      if (!status.connected) {
+        await recoveryReconnect();
+      } else if (status.mode === 'error_locked') {
+        if (!(await recoveryAutomatic())) {
+          await recoveryViaDesk();
+          if (!(await recoveryAutomatic())) await recoveryReconnect();
+        }
+      }
+
+      status = await robotStatusNow();
+      if (!status.connected || status.mode !== 'ready') {
+        throw new Error(`Il robot non è tornato READY (stato: ${status.connected ? status.mode : 'disconnesso'}). Controlla Desk e gli errori del cobot.`);
+      }
+      recoveryLog('Robot in stato READY.');
+
+      if (!confirm(`Spostare il cobot nella posizione home a velocità ${speed}?\n\nIl robot si muoverà davvero (circa ${Math.round(5 / speed)} s). Dopo una collisione verifica che il percorso sia libero e che l'oggetto eventualmente trattenuto non crei rischi.`)) {
+        recoveryLog('Movimento verso home annullato: il robot è READY ma non è stato mosso.');
+        return;
+      }
+
+      const before = await lastCobotOperation();
+      const started = await cf('POST', 'api/motion/move-home', { speed_factor: speed });
+      if (!started.ok) throw new Error(started.data.error || 'Movimento verso home rifiutato.');
+      recoveryLog('Movimento verso home in corso…');
+      await waitForCobotIdle((5 / speed + 30) * 1000);
+      const last = await lastCobotOperation();
+      if (last && (!before || last.completed_at !== before.completed_at) && !last.success) {
+        throw new Error(last.error || 'Movimento verso home terminato senza successo.');
+      }
+      status = await robotStatusNow();
+      if (status.mode !== 'ready') throw new Error(`Dopo il movimento il robot è in stato ${status.mode}.`);
+      recoveryLog('Robot in posizione home, stato READY.');
+    } catch (error) {
+      recoveryLog(error.message, false);
+    } finally {
+      _recoveryRunning = false;
+      button.disabled = false;
+      refreshStatus();
+    }
   }
 
   // ── Robot state ─────────────────────────────────────────────────────────
@@ -1258,7 +1519,7 @@
   }
 
   async function planMoveItPose() {
-    document.getElementById('mv-execute-btn').disabled = true;
+    setPlannedExecuteButtons('mv-execute-btn', 'mv-fly-btn', true);
     _lastTrajectory = null;
 
     // Stato REALE del robot da cobot (moveit_api da solo pianifica contro uno
@@ -1281,7 +1542,7 @@
 
     if (ok && data.success) {
       _lastTrajectory = data.trajectory;
-      document.getElementById('mv-execute-btn').disabled = false;
+      setPlannedExecuteButtons('mv-execute-btn', 'mv-fly-btn', false);
     }
     setResult('mv-plan-result', ok ? summarizePlan(data) : data, ok && data.success);
     showState('mv-plan-box', summarizePlan(data), ok && data.success, false);
@@ -1290,8 +1551,7 @@
   let _lastJointTrajectory = null;
 
   async function planMoveItJoints() {
-    const executeButton = document.getElementById('mv-joint-execute-btn');
-    executeButton.disabled = true;
+    setPlannedExecuteButtons('mv-joint-execute-btn', 'mv-joint-fly-btn', true);
     _lastJointTrajectory = null;
 
     const targetValues = getJointVals('mvjq');
@@ -1324,55 +1584,277 @@
     const { ok, data } = await mf('POST', 'moveit/plan-joint', body);
     if (ok && data.success && data.trajectory && Array.isArray(data.trajectory.points) && data.trajectory.points.length > 0) {
       _lastJointTrajectory = data.trajectory;
-      executeButton.disabled = false;
+      setPlannedExecuteButtons('mv-joint-execute-btn', 'mv-joint-fly-btn', false);
     }
     setResult('mv-joint-plan-result', ok ? summarizePlan(data) : data, ok && data.success);
     showState('mv-joint-plan-box', summarizePlan(data), ok && data.success, false);
   }
 
-  async function executeJointPlannedTrajectory() {
-    if (!_lastJointTrajectory) return;
-    const points = _lastJointTrajectory.points;
-    const segmentDuration = n('mv-joint-segment-duration');
-    if (!Number.isFinite(segmentDuration) || segmentDuration < 0.5 || segmentDuration > 30) {
-      setResult('mv-joint-plan-result', { error: 'La durata per waypoint deve essere compresa tra 0.5 e 30 secondi.' }, false);
-      return;
-    }
-    if (!confirm(`Eseguire la traiettoria articolare MoveIt (${points.length} waypoint, ${segmentDuration} s/waypoint)? Il cobot si muoverà davvero.`)) return;
+  function setPlannedExecuteButtons(pointId, flyId, disabled) {
+    document.getElementById(pointId).disabled = disabled;
+    document.getElementById(flyId).disabled = disabled;
+  }
 
+  // Il pre-check del cobot (limiti, velocità, singolarità) gira prima del movimento e
+  // ha un suo budget di tempo (COBOT_PRECHECK_TIMEOUT_SEC, annunciato nella risposta 202
+  // come precheck_timeout_sec). Il timeout di attesa deve coprire: pre-check + durata
+  // nominale + margine (la fly motion può essere allungata dai limiti di velocità).
+  const DEFAULT_PRECHECK_BUDGET_SEC = 10;
+  function trajectoryTimeoutMs(numWaypoints, segmentDuration, precheckBudgetSec) {
+    const budget = Number.isFinite(precheckBudgetSec) ? precheckBudgetSec : DEFAULT_PRECHECK_BUDGET_SEC;
+    const nominalSec = numWaypoints * segmentDuration;
+    return Math.max(60, nominalSec * 2 + budget + 30) * 1000;
+  }
+
+  async function lastCobotOperation() {
+    try {
+      const response = await fetch(`${PROXY}/api/robot/status`);
+      const data = await response.json().catch(() => ({}));
+      return data.last_operation || null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // Invia una traiettoria al cobot, attende la fine (timeout dinamico) e riporta
+  // l'esito reale, compreso un eventuale rifiuto del pre-check.
+  async function executeTrajectoryAndReport(endpoint, body, resultId, numWaypoints, segmentDuration) {
+    const before = await lastCobotOperation();
+    const { ok, data } = await cf('POST', endpoint, body);
+    if (!ok || data.status !== 'accepted') {
+      setResult(resultId, data, ok);
+      return { ok, data };
+    }
+    setResult(resultId, { status: 'Accettata: pre-check ed esecuzione in corso…' }, true);
+    try {
+      await waitForCobotIdle(trajectoryTimeoutMs(numWaypoints, segmentDuration, data.precheck_timeout_sec));
+    } catch (error) {
+      setResult(resultId, { error: error.message }, false);
+      return { ok: false, data: { error: error.message } };
+    }
+    const last = await lastCobotOperation();
+    const finished = last && (!before || last.completed_at !== before.completed_at);
+    if (finished && !last.success) {
+      setResult(resultId, { error: last.error || `${last.operation} terminata senza successo` }, false);
+      return { ok: false, data: { error: last.error } };
+    }
+    setResult(resultId, { status: `${data.operation} completata` }, true);
+    return { ok: true, data };
+  }
+
+  function jointTrajectoryWaypoints() {
     const plannedNames = _lastJointTrajectory.joint_names || [];
     if (!FR3_JOINT_NAMES.every(name => plannedNames.includes(name))) {
       setResult('mv-joint-plan-result', { error: `Nomi dei giunti MoveIt incompatibili: ${plannedNames.join(', ')}` }, false);
-      return;
+      return null;
     }
-    const waypoints = points.map(point =>
+    return _lastJointTrajectory.points.map(point =>
       FR3_JOINT_NAMES.map(name => point.positions[plannedNames.indexOf(name)])
     );
-    const { ok, data } = await cf('POST', 'api/motion/execute-trajectory', {
+  }
+
+  function readSegmentDuration(id, resultId) {
+    const segmentDuration = n(id);
+    if (!Number.isFinite(segmentDuration) || segmentDuration < 0.5 || segmentDuration > 30) {
+      setResult(resultId, { error: 'La durata per waypoint deve essere compresa tra 0.5 e 30 secondi.' }, false);
+      return null;
+    }
+    return segmentDuration;
+  }
+
+  function readBlendRadius(id, resultId) {
+    const blendRadius = n(id);
+    if (!Number.isFinite(blendRadius) || blendRadius < 0 || blendRadius > 1) {
+      setResult(resultId, { error: 'Il raggio di raccordo deve essere compreso tra 0 e 1 rad.' }, false);
+      return null;
+    }
+    return blendRadius;
+  }
+
+  async function executeJointPlannedTrajectory() {
+    if (!_lastJointTrajectory) return;
+    const segmentDuration = readSegmentDuration('mv-joint-segment-duration', 'mv-joint-plan-result');
+    if (segmentDuration === null) return;
+    const waypoints = jointTrajectoryWaypoints();
+    if (!waypoints) return;
+    if (!confirm(`Eseguire la traiettoria articolare MoveIt punto per punto (${waypoints.length} waypoint, ${segmentDuration} s/waypoint, con arresto a ogni waypoint)? Il cobot si muoverà davvero.`)) return;
+
+    await executeTrajectoryAndReport('api/motion/execute-trajectory', {
       waypoints,
       speed_factor: n('mv-joint-speed-n'),
       segment_duration: segmentDuration,
-    });
-    setResult('mv-joint-plan-result', data, ok);
+    }, 'mv-joint-plan-result', waypoints.length, segmentDuration);
+  }
+
+  async function executeJointPlannedTrajectoryFly() {
+    if (!_lastJointTrajectory) return;
+    const segmentDuration = readSegmentDuration('mv-joint-segment-duration', 'mv-joint-plan-result');
+    const blendRadius = readBlendRadius('mv-joint-blend-radius', 'mv-joint-plan-result');
+    if (segmentDuration === null || blendRadius === null) return;
+    const waypoints = jointTrajectoryWaypoints();
+    if (!waypoints) return;
+    if (!confirm(`Eseguire la traiettoria articolare MoveIt in Fly Motion (${waypoints.length} waypoint, durata richiesta ${(waypoints.length * segmentDuration).toFixed(1)} s, raccordo ${blendRadius} rad, senza fermarsi nei punti intermedi)? Il cobot si muoverà davvero.`)) return;
+
+    await executeTrajectoryAndReport('api/motion/execute-trajectory-fly', {
+      waypoints,
+      speed_factor: n('mv-joint-speed-n'),
+      segment_duration: segmentDuration,
+      blend_radius: blendRadius,
+    }, 'mv-joint-plan-result', waypoints.length, segmentDuration);
   }
 
   async function executePlannedTrajectory() {
     if (!_lastTrajectory) return;
     const numPts = _lastTrajectory.points.length;
-    const segmentDuration = n('mv-segment-duration');
-    if (!Number.isFinite(segmentDuration) || segmentDuration < 0.5 || segmentDuration > 30) {
-      setResult('mv-plan-result', { error: 'La durata per waypoint deve essere compresa tra 0.5 e 30 secondi.' }, false);
-      return;
-    }
-    if (!confirm(`Eseguire su cobot la traiettoria pianificata (${numPts} waypoint, ${segmentDuration} s/waypoint)? Il robot si muoverà davvero.`)) return;
+    const segmentDuration = readSegmentDuration('mv-segment-duration', 'mv-plan-result');
+    if (segmentDuration === null) return;
+    if (!confirm(`Eseguire su cobot la traiettoria pianificata punto per punto (${numPts} waypoint, ${segmentDuration} s/waypoint, con arresto a ogni waypoint)? Il robot si muoverà davvero.`)) return;
 
-    const waypoints = _lastTrajectory.points.map(p => p.positions);
-    const { ok, data } = await cf('POST', 'api/motion/execute-trajectory', {
-      waypoints,
+    await executeTrajectoryAndReport('api/motion/execute-trajectory', {
+      waypoints: _lastTrajectory.points.map(p => p.positions),
       speed_factor: n('mv-speed-n'),
       segment_duration: segmentDuration,
-    });
-    setResult('mv-plan-result', data, ok);
+    }, 'mv-plan-result', numPts, segmentDuration);
+  }
+
+  async function executePlannedTrajectoryFly() {
+    if (!_lastTrajectory) return;
+    const numPts = _lastTrajectory.points.length;
+    const segmentDuration = readSegmentDuration('mv-segment-duration', 'mv-plan-result');
+    const blendRadius = readBlendRadius('mv-blend-radius', 'mv-plan-result');
+    if (segmentDuration === null || blendRadius === null) return;
+    if (!confirm(`Eseguire su cobot la traiettoria pianificata in Fly Motion (${numPts} waypoint, durata richiesta ${(numPts * segmentDuration).toFixed(1)} s, raccordo ${blendRadius} rad, senza fermarsi nei punti intermedi)? Il robot si muoverà davvero.`)) return;
+
+    await executeTrajectoryAndReport('api/motion/execute-trajectory-fly', {
+      waypoints: _lastTrajectory.points.map(p => p.positions),
+      speed_factor: n('mv-speed-n'),
+      segment_duration: segmentDuration,
+      blend_radius: blendRadius,
+    }, 'mv-plan-result', numPts, segmentDuration);
+  }
+
+  // ── Force control ───────────────────────────────────────────────────────
+  function forceCommon() {
+    const force = n('ft-force');
+    const approach = n('ft-approach');
+    const approachDist = n('ft-approach-dist');
+    const lateral = n('ft-lateral-k');
+    if (![force, approach, approachDist, lateral].every(Number.isFinite)) {
+      throw new Error('Inserire valori numerici validi per forza, avvicinamento e cedevolezza.');
+    }
+    return {
+      force,
+      approach_speed: approach,
+      max_approach_distance: approachDist / 1000,
+      lateral_stiffness: lateral,
+      _approachSec: approach > 0 ? (approachDist / 1000) / approach : 0,
+    };
+  }
+
+  // Attende la fine del task di forza e riporta l'esito reale (comprese le cause di
+  // mancato raggiungimento dell'obiettivo, come blocco, timeout o nessun contatto).
+  async function runForceTask(endpoint, body, estimatedSec, description) {
+    const resultId = 'ft-result';
+    if (!confirm(`${description}\n\nIl cobot si muoverà e applicherà una forza reale. Verifica che l'area sia libera e che il pezzo sia fissato.`)) return;
+    const before = await lastCobotOperation();
+    const { ok, data } = await cf('POST', endpoint, body);
+    if (!ok || data.status !== 'accepted') { setResult(resultId, data, ok); return; }
+    setResult(resultId, { status: `Accettato (limite di sicurezza ${data.abort_force} N): avvicinamento e applicazione della forza in corso…` }, true);
+    try {
+      await waitForCobotIdle((estimatedSec + 90) * 1000);
+    } catch (error) {
+      setResult(resultId, { error: error.message }, false);
+      return;
+    }
+    const last = await lastCobotOperation();
+    const finished = last && (!before || last.completed_at !== before.completed_at);
+    if (finished && !last.success) {
+      setResult(resultId, { error: last.error || `${last.operation} terminata senza successo` }, false);
+    } else {
+      setResult(resultId, { status: `${data.operation} completato` }, true);
+    }
+  }
+
+  async function runForceApply() {
+    let c;
+    try { c = forceCommon(); } catch (e) { setResult('ft-result', { error: e.message }, false); return; }
+    const hold = n('ft-hold');
+    if (!Number.isFinite(hold) || hold <= 0) { setResult('ft-result', { error: 'Tempo di mantenimento non valido.' }, false); return; }
+    const { _approachSec, ...rest } = c;
+    await runForceTask('api/motion-force/apply', { ...rest, duration: hold },
+      _approachSec + hold + 5, `Spingere con ${c.force} N per ${hold} s?`);
+  }
+
+  async function runForceInsert() {
+    let c;
+    try { c = forceCommon(); } catch (e) { setResult('ft-result', { error: e.message }, false); return; }
+    const depthMm = n('ft-depth');
+    const maxTime = n('ft-max-time');
+    if (![depthMm, maxTime].every(Number.isFinite) || depthMm <= 0 || maxTime <= 0) {
+      setResult('ft-result', { error: 'Profondità e timeout devono essere numeri positivi.' }, false);
+      return;
+    }
+    const { _approachSec, ...rest } = c;
+    await runForceTask('api/motion-force/insert',
+      { ...rest, target_depth: depthMm / 1000, max_depth: Math.max(0.05, depthMm / 1000 + 0.01), max_time: maxTime },
+      _approachSec + maxTime + 5, `Inserire di ${depthMm} mm spingendo con ${c.force} N (timeout ${maxTime} s)?`);
+  }
+
+  // Mostra solo i campi della ripresa rilevanti per la modalità scelta e solo con più passate.
+  function updateScrewRegrasp() {
+    const passes = n('ft-passes');
+    const mode = document.getElementById('ft-regrasp-mode').value;
+    const multi = Number.isFinite(passes) && passes > 1;
+    document.getElementById('ft-regrasp-mode').closest('.col').style.display = multi ? '' : 'none';
+    document.getElementById('ft-rewind-speed').closest('.col').style.display = multi ? '' : 'none';
+    document.querySelectorAll('.ft-gripper').forEach(el => { el.style.display = multi && mode === 'gripper' ? '' : 'none'; });
+    document.querySelectorAll('.ft-retract').forEach(el => { el.style.display = multi && mode === 'retract' ? '' : 'none'; });
+  }
+  document.addEventListener('DOMContentLoaded', updateScrewRegrasp);
+
+  async function runForceScrew() {
+    let c;
+    try { c = forceCommon(); } catch (e) { setResult('ft-result', { error: e.message }, false); return; }
+    const angle = n('ft-angle');
+    const speed = n('ft-ang-speed');
+    const maxTorque = n('ft-max-torque');
+    if (![angle, speed, maxTorque].every(Number.isFinite) || angle === 0 || speed <= 0 || maxTorque <= 0) {
+      setResult('ft-result', { error: 'Angolo (≠ 0), velocità e coppia massima devono essere numeri validi.' }, false);
+      return;
+    }
+    const stopAtTorque = document.getElementById('ft-stop-torque').checked;
+    const passes = n('ft-passes');
+    if (!Number.isInteger(passes) || passes < 1 || passes > 20) {
+      setResult('ft-result', { error: 'Le passate devono essere un intero tra 1 e 20.' }, false);
+      return;
+    }
+    const { _approachSec, ...rest } = c;
+    const body = { ...rest, angle, angular_speed: speed, max_torque: maxTorque, stop_at_torque: stopAtTorque, iterations: passes };
+    let regraspSec = 0;
+    let regraspText = '';
+    if (passes > 1) {
+      const mode = document.getElementById('ft-regrasp-mode').value;
+      const rewind = n('ft-rewind-speed');
+      if (!Number.isFinite(rewind) || rewind <= 0) {
+        setResult('ft-result', { error: 'Velocità di riavvolgimento non valida.' }, false);
+        return;
+      }
+      body.regrasp_mode = mode;
+      body.rewind_speed = rewind;
+      if (mode === 'gripper') {
+        body.grasp_width_mm = n('ft-grasp-width');
+        body.open_width_mm = n('ft-open-width');
+        body.grasp_force = n('ft-grasp-force');
+      } else if (mode === 'retract') {
+        body.retract_distance = n('ft-retract') / 1000;
+      }
+      // riavvolgimento del giunto 7 (≈ 6 rad) + apertura/chiusura gripper + margine
+      regraspSec = (passes - 1) * (1.875 * 6 / rewind + 20);
+      regraspText = `, ${passes} passate con ripresa «${mode}»`;
+    }
+    const perPassSec = _approachSec + 1.875 * Math.abs(angle) / speed + 10;
+    await runForceTask('api/motion-force/screw', body, perPassSec * passes + regraspSec,
+      `Avvitare di ${angle} rad per passata (${(passes * angle / (2 * Math.PI)).toFixed(2)} giri in totale) con ${c.force} N, coppia max ${maxTorque} Nm${stopAtTorque ? ' (serraggio)' : ''}${regraspText}?`);
   }
 
   function setMoveItWorkflowStatus(message, ok = true) {
@@ -1455,13 +1937,18 @@
     }, true, true);
 
     setMoveItWorkflowStatus(`${label}: esecuzione traiettoria (${points.length} waypoint)…`);
+    const lastBefore = await lastCobotOperation();
     const execution = await cf('POST', 'api/motion/execute-trajectory', {
       waypoints,
       speed_factor: speedFactor,
       segment_duration: segmentDuration,
     });
     if (!execution.ok) throw new Error(execution.data.error || `Il cobot ha rifiutato la traiettoria per ${label}.`);
-    await waitForCobotIdle();
+    await waitForCobotIdle(trajectoryTimeoutMs(waypoints.length, segmentDuration, execution.data.precheck_timeout_sec));
+    const lastAfter = await lastCobotOperation();
+    if (lastAfter && (!lastBefore || lastAfter.completed_at !== lastBefore.completed_at) && !lastAfter.success) {
+      throw new Error(`${label}: ${lastAfter.error || 'traiettoria rifiutata o fallita'}`);
+    }
 
     // Il servizio risponde 202: controlla anche che il robot sia arrivato al waypoint finale
     // prima di proseguire con la presa o con la fase successiva.
@@ -1668,16 +2155,35 @@
     const { ok, data } = await cf('GET', 'api/desk/config');
     showState('desk-state-box', data, ok, true);
   }
+  let _preparing = false;
+  function _setPrepareButtons(disabled) {
+    document.querySelectorAll('button[onclick^="deskPrepare"]').forEach(b => { b.disabled = disabled; });
+  }
+  async function _runPrepare(path, refresh) {
+    if (_preparing) return;
+    _preparing = true;
+    _setPrepareButtons(true);
+    try {
+      const { ok, status, data } = await cf('POST', path);
+      if (status === 409) {
+        const info = { status: 'in_progress', message: data.error || 'Preparazione già in corso' };
+        setResult('desk-conn-result', info, true);
+        showState('desk-state-box', info, true, true);
+        return;
+      }
+      setResult('desk-conn-result', data, ok);
+      showState('desk-state-box', data, ok, ok);
+      if (ok && refresh) refreshStatus();
+    } finally {
+      _preparing = false;
+      _setPrepareButtons(false);
+    }
+  }
   async function deskPrepareFCI() {
-    const { ok, data } = await cf('POST', 'api/desk/prepare-fci');
-    setResult('desk-conn-result', data, ok);
-    showState('desk-state-box', data, ok, ok);
+    await _runPrepare('api/desk/prepare-fci', false);
   }
   async function deskPrepareAndConnect() {
-    const { ok, data } = await cf('POST', 'api/desk/prepare-and-connect');
-    setResult('desk-conn-result', data, ok);
-    showState('desk-state-box', data, ok, ok);
-    if (ok) refreshStatus();
+    await _runPrepare('api/desk/prepare-and-connect', true);
   }
   async function deskSystem() {
     const { ok, data } = await cf('GET', 'api/desk/system');

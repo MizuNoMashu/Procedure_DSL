@@ -481,6 +481,13 @@
     }
     return params;
   }
+  // Il cobot esegue un pre-check della traiettoria (budget annunciato come
+  // precheck_timeout_sec nella risposta 202) prima di muoversi: il timeout di attesa
+  // deve coprire pre-check + durata nominale + margine, non un valore fisso.
+  function trajectoryTimeoutMs(numWaypoints, segmentDuration, precheckBudgetSec) {
+    const budget = Number.isFinite(precheckBudgetSec) ? precheckBudgetSec : 10;
+    return Math.max(60, numWaypoints * segmentDuration * 2 + budget + 30) * 1000;
+  }
   async function waitForCobotIdle(timeoutMs = 240000, operationStartedAt = Date.now()) {
     const start = Date.now();
     let observedBusy = false;
@@ -546,7 +553,7 @@
     const operationStartedAt = Date.now();
     const execution = await cobot('POST', 'api/motion/execute-trajectory', { waypoints, speed_factor: params.speed_factor, segment_duration: params.segment_duration });
     if (!execution.ok) throw new Error(execution.data.error || 'Cobot ha rifiutato la traiettoria.');
-    await waitForCobotIdle(240000, operationStartedAt);
+    await waitForCobotIdle(trajectoryTimeoutMs(points.length, params.segment_duration, execution.data.precheck_timeout_sec), operationStartedAt);
     return `${points.length} waypoint eseguiti (${params.segment_duration} s/waypoint)`;
   }
   async function executeGripper(step, params) {
