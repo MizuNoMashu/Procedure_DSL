@@ -22,6 +22,7 @@ api_ui_bp = Blueprint('api_ui', __name__)
 _SRC_DIR = Path(__file__).parent.parent
 _LLM_URL = os.environ.get('LLM_SERVICE_URL', 'http://llm:8001')
 _COBOT_URL = os.environ.get('COBOT_SERVICE_URL', 'http://cobot:5000')
+_SIM_URL = os.environ.get('SIM_SERVICE_URL', '')
 _MOVEIT_URL = os.environ.get('MOVEIT_SERVICE_URL', 'http://moveit:5000')
 
 
@@ -181,12 +182,15 @@ def cobot_proxy(path):
     """Transparent proxy to the cobot API service."""
     url = f'{_COBOT_URL}/{path}'
     timeout = 120 if path in _LONG_TIMEOUT_PATHS else 30
+    # il cobot accetta comandi solo dalla sessione attiva (coda FIFO): inoltra l'header
+    headers = {k: v for k, v in request.headers.items() if k.lower() == 'x-session-id'}
     try:
         resp = _requests.request(
             method=request.method,
             url=url,
             json=request.get_json(silent=True) if request.method in ('POST',) else None,
             params=request.args,
+            headers=headers,
             timeout=timeout,
         )
         return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
@@ -219,3 +223,20 @@ def moveit_proxy(path):
     except Exception as e:
         print(f"[PROXY ERROR] {request.method} /{path}: {type(e).__name__}: {e}")
         return jsonify({"error": f"Proxy error: {str(e)}"}), 502
+
+
+@api_ui_bp.route('/sim-proxy/<path:path>', methods=['GET', 'POST'])
+def sim_proxy(path):
+    """Proxy to the simulator settings (only exists when SIM_SERVICE_URL is set)."""
+    if not _SIM_URL:
+        return jsonify({"error": "simulator not configured"}), 404
+    try:
+        resp = _requests.request(
+            method=request.method,
+            url=f'{_SIM_URL}/{path}',
+            json=request.get_json(silent=True) if request.method == 'POST' else None,
+            timeout=10,
+        )
+        return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
+    except _requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Simulator unreachable: {e}"}), 503

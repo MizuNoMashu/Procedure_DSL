@@ -418,6 +418,7 @@
   </div>
 </div>
 
+<script src="/static/cobot_session.js"></script>
 <script>
 // ── Robot Setup ────────────────────────────────────────────────────────────
 async function cobotFetch(method, path, body) {
@@ -994,34 +995,43 @@ function showExecMsg(text) {
 // ── Execute ops ────────────────────────────────────────────────────────────
 async function execOneOp(stepNum, opIdx) {
   const op = (stepOps[stepNum] || [])[opIdx];
-  if (!op) return;
+  if (!op) return false;
   const btn = document.getElementById('eb-' + opIdx);
   const status = document.getElementById('es-' + opIdx);
   if (btn) btn.disabled = true;
   if (status) status.textContent = '⏳';
   try {
+    await CobotSession.ensure();
     const r = await fetch('/dsl-cobot/execute-op', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json', ...CobotSession.headers()},
       body: JSON.stringify({func: op.func, params: op.params})
     });
     const d = await r.json();
     if (r.ok) {
       if (status) { status.textContent = '✓'; status.style.color = '#2a9d2a'; }
-    } else {
-      if (status) { status.textContent = '✗'; status.style.color = '#c00'; }
-      showExecMsg(d.error || 'Execution failed');
-      if (btn) btn.disabled = false;
+      return true;
     }
+    if (status) { status.textContent = '✗'; status.style.color = '#c00'; }
+    showExecMsg(d.error || 'Execution failed');
+    if (btn) btn.disabled = false;
   } catch(e) {
     if (status) { status.textContent = '✗'; status.style.color = '#c00'; }
     showExecMsg(e.message);
     if (btn) btn.disabled = false;
   }
+  return false;
 }
 
 async function execAllOps(stepNum) {
   const ops = stepOps[stepNum] || [];
-  for (let i = 0; i < ops.length; i++) await execOneOp(stepNum, i);
+  try {
+    // le operazioni dello step sono una transazione: stessa sessione, turno rilasciato alla fine
+    for (let i = 0; i < ops.length; i++) {
+      if (!(await execOneOp(stepNum, i))) break;  // la sessione è fallita: non proseguire
+    }
+  } finally {
+    await CobotSession.release();
+  }
 }
 
 // ── Op string helpers ──────────────────────────────────────────────────────

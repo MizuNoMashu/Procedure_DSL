@@ -17,10 +17,13 @@ interamente a carico del servizio 'cobot' (pylibfranka).
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import threading
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -286,7 +289,33 @@ class MoveItInterface:
             "mode": "planner_only",
         }
 
+    def _external_arm_state(self) -> Optional[dict[str, float]]:
+        """Stato articolare del robot simulato (ROBOT_STATE_URL), se configurato.
+
+        Con il simulatore cobot-sim il robot "vero" è lui, non il fake hardware di
+        questo container: lo stato di partenza della pianificazione si legge da lì.
+        """
+        url = os.getenv("ROBOT_STATE_URL")
+        if not url:
+            return None
+        try:
+            with urllib.request.urlopen(url, timeout=1.5) as response:
+                q = json.load(response).get("q")
+        except Exception as exc:
+            logger.warning("ROBOT_STATE_URL non raggiungibile (%s): uso lo stato ROS", exc)
+            return None
+        if not q or len(q) != 7:
+            return None
+        return {f"fr3_joint{i + 1}": float(v) for i, v in enumerate(q)}
+
     def latest_joint_state(self) -> Optional[dict[str, Any]]:
+        external = self._external_arm_state()
+        if external is not None:
+            return {
+                "name": list(external.keys()),
+                "position": list(external.values()),
+                "velocity": [0.0] * len(external),
+            }
         with self._joint_state_lock:
             js = self._latest_joint_state
         if js is None:
@@ -530,6 +559,8 @@ class MoveItInterface:
             goal = MoveGroup.Goal()
             goal.request.group_name = group
             goal.request.goal_constraints = goal_constraints
+            if not start_joint_positions:
+                start_joint_positions = self._external_arm_state()
             if start_joint_positions:
                 goal.request.start_state = RobotState(
                     joint_state=JointState(

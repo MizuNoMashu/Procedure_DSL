@@ -79,6 +79,16 @@ docker compose up moveit --no-deps --build
 docker compose up ui cobot moveit --no-deps --build
 ```
 
+### Simulated cobot (ROS 2, no robot needed)
+
+The `cobot-sim` service (profile `sim`) runs the same cobot API (sessions, FIFO queue, Desk API, motion, force, gripper) on a simulated Franka FR3 and publishes it to ROS 2. Start it instead of the real `cobot`:
+
+```bash
+COBOT_SERVICE_URL=http://cobot-sim:5001 SIM_SERVICE_URL=http://cobot-sim:8080 docker compose --profile sim up ui cobot-sim --build
+```
+
+Open the UI on http://localhost:8000, go to the Cobot page and use *Connect Desk* / *Prepare and connect* with any IP. 3D view: http://localhost:8090 (local viewer, no cloud). Details in [cobot_sim/README.md](cobot_sim/README.md).
+
 > **Cobot note:** the `./cobot/` folder is not tracked by git. From the root of `Procedure_DSL/`, run:
 > ```bash
 > git clone --filter=blob:none --sparse https://github.com/MizuNoMashu/cobot-assembly-components

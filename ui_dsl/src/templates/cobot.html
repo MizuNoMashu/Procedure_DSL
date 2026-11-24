@@ -225,6 +225,26 @@
       <div id="telemetry-note" aria-live="polite">Lettura posizione, giunti, modalità e progresso dell’operazione.</div>
     </div>
 
+    <!-- ── Simulator (visible only when the cobot is the ROS simulator) ── -->
+    <div class="panel" id="sim-panel" hidden>
+      <h2>Simulator · contact surface</h2>
+      <div class="row">
+        <div class="col">
+          <label>Surface height Z (<b>metres</b>, base frame, e.g. 0.40)</label>
+          <input type="number" id="sim-contact-z" step="0.005" min="-0.5" max="1.5" style="width:120px">
+        </div>
+        <div class="col">
+          <label>Below current TCP (cm)</label>
+          <input type="number" id="sim-contact-gap" value="3" step="0.5" min="0" style="width:90px">
+        </div>
+        <div style="flex:1"></div>
+        <button class="sm" style="margin-top:16px" onclick="simUseCurrentZ()">Place under TCP</button>
+        <button class="primary" style="margin-top:16px" onclick="simSetContact(true)">Apply</button>
+        <button class="sm" style="margin-top:16px" onclick="simSetContact(false)">No surface</button>
+      </div>
+      <div class="result-line" id="sim-result">Apply / insert / screw need a surface to push against.</div>
+    </div>
+
     <!-- ── Connection ── -->
     <div class="panel">
       <h2>Connection</h2>
@@ -917,6 +937,7 @@
 
 </div><!-- /#layout -->
 
+<script src="/static/cobot_session.js"></script>
 <script>
   // ── Joint definitions (Franka Panda) ────────────────────────────────────
   const JOINTS = [
@@ -1033,7 +1054,7 @@
       opts.body = JSON.stringify(body);
     }
     try {
-      const r = await fetch(`${PROXY}/${path}`, opts);
+      const r = await CobotSession.fetch(path, opts);
       const data = await r.json().catch(() => ({}));
       log(method, path, r.ok, data);
       if (method === 'POST' && r.ok && data.status === 'accepted') {
@@ -1074,6 +1095,39 @@
       ? (data.status || data.operation || JSON.stringify(data)).toString()
       : (data.error || data.message || JSON.stringify(data)).toString();
   }
+
+  // ── Simulator contact surface ───────────────────────────────────────────
+  async function simCall(method, body) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const r = await fetch('/sim-proxy/sim/contact', opts);
+    return { ok: r.ok, data: await r.json().catch(() => ({})) };
+  }
+  function simShow(data) {
+    const z = data.contact_z;
+    document.getElementById('sim-contact-z').value = z === null || z === undefined ? '' : z;
+    setResult('sim-result', { status: z === null || z === undefined ? 'No contact surface' : `Surface at z = ${z} m` }, true);
+  }
+  async function simSetContact(enabled) {
+    const raw = document.getElementById('sim-contact-z').value;
+    if (enabled && raw === '') { setResult('sim-result', { error: 'Enter a height or use "Place under TCP".' }, false); return; }
+    const { ok, data } = await simCall('POST', { contact_z: enabled ? parseFloat(raw) : null });
+    ok ? simShow(data) : setResult('sim-result', data, false);
+  }
+  function simUseCurrentZ() {
+    const z = parseFloat(document.getElementById('live-z').textContent);
+    if (!Number.isFinite(z)) { setResult('sim-result', { error: 'TCP position not available: connect the robot first.' }, false); return; }
+    const gap = parseFloat(document.getElementById('sim-contact-gap').value) / 100;
+    document.getElementById('sim-contact-z').value = (z - (Number.isFinite(gap) ? gap : 0.03)).toFixed(3);
+    simSetContact(true);
+  }
+  (async () => {
+    try {
+      const { ok, data } = await simCall('GET');
+      if (ok) { document.getElementById('sim-panel').hidden = false; simShow(data); }
+    } catch (e) { /* no simulator: panel stays hidden */ }
+  })();
+
   function showState(id, data, ok, neutral) {
     const box = document.getElementById(id);
     box.style.display = '';

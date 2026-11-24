@@ -6,8 +6,11 @@ services:
     container_name: procedure-ui
     environment:
       - LLM_SERVICE_URL=http://extractor:8001
-      - COBOT_SERVICE_URL=http://host.docker.internal:5001
+      # con il simulatore: COBOT_SERVICE_URL=http://cobot-sim:5001 docker compose --profile sim up ui cobot-sim
+      - COBOT_SERVICE_URL=${COBOT_SERVICE_URL:-http://host.docker.internal:5001}
       - MOVEIT_SERVICE_URL=http://moveit:5000
+      # with the simulator: SIM_SERVICE_URL=http://cobot-sim:8080 (enables the contact-surface panel)
+      - SIM_SERVICE_URL=${SIM_SERVICE_URL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -72,6 +75,10 @@ services:
 
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-10}
 
+      # con il simulatore: ROBOT_STATE_URL=http://cobot-sim:8090/state (pianifica dallo stato del simulatore)
+
+      ROBOT_STATE_URL: ${ROBOT_STATE_URL:-}
+
     privileged: true
 
     cap_add:
@@ -114,4 +121,29 @@ services:
 
       start_period: 60s
 
+    restart: unless-stopped
+
+  # Simulatore Franka FR3 su ROS 2 (profilo "sim", non parte con un normale `up`).
+  # Espone la stessa API del servizio cobot (sessioni, coda, Desk API finta) ma
+  # i movimenti sono simulati e visualizzabili in 3D su http://localhost:8090 (visualizzatore locale).
+  cobot-sim:
+    profiles: ["sim"]
+    build:
+      context: .
+      dockerfile: cobot_sim/Dockerfile
+    container_name: procedure-cobot-sim
+    environment:
+      - PORT=5001
+      - ROS_DOMAIN_ID=${SIM_ROS_DOMAIN_ID:-20}
+      - SIM_SPEED=${SIM_SPEED:-1}
+      - SIM_CONTACT_Z=${SIM_CONTACT_Z:-}
+    ports:
+      - "5001:5001"
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     restart: unless-stopped

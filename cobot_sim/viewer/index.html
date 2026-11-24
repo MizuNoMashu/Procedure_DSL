@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cobot simulator · 3D</title>
+<style>
+  html,body{margin:0;height:100%;background:#1c2128;color:#e6edf3;font:13px system-ui,sans-serif;overflow:hidden}
+  #hud{position:fixed;left:12px;top:12px;padding:10px 12px;background:rgba(0,0,0,.55);border-radius:8px;min-width:230px;line-height:1.55}
+  #hud b{font-weight:600;color:#9ecbff} #hud .mode{display:inline-block;padding:1px 8px;border-radius:9px;background:#2d6a3f}
+  #hud .mode.reflex{background:#a3281f} #hud .mode.move{background:#8a5a00}
+  #msg{position:fixed;left:12px;bottom:12px;opacity:.7}
+</style>
+<script type="importmap">
+{"imports":{"three":"/vendor/three.module.js","three/examples/jsm/":"/vendor/jsm/"}}
+</script>
+</head>
+<body>
+<div id="hud">
+  <div><b>Franka FR3</b> · simulator <span class="mode" id="mode">…</span></div>
+  <div>TCP <span id="ee">—</span></div>
+  <div>Gripper <span id="grip">—</span></div>
+  <div>Force Z <span id="force">—</span></div>
+  <div>Surface <span id="surface">none</span></div>
+  <div>σ<sub>min</sub>(J) <span id="sigma">—</span></div>
+</div>
+<div id="msg">Drag to orbit · wheel to zoom · right-drag to pan</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import URDFLoader from '/vendor/urdf/URDFLoader.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1c2128);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 50);
+camera.up.set(0, 0, 1);
+camera.position.set(1.4, -1.4, 1.0);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0.3, 0, 0.4);
+controls.update();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(1.5, -1, 3); sun.castShadow = true;
+scene.add(sun);
+const grid = new THREE.GridHelper(2, 20, 0x556070, 0x333b45);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
+scene.add(new THREE.AxesHelper(0.2));
+
+const plane = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.2, 1.2),
+  new THREE.MeshBasicMaterial({ color: 0xffb300, transparent: true, opacity: 0.28, side: THREE.DoubleSide }));
+plane.visible = false;
+scene.add(plane);
+
+let robot = null;
+const loader = new URDFLoader();
+loader.packages = { franka_description: '/pkg/franka_description' };
+loader.load('/robot.urdf', r => { robot = r; scene.add(r); }, undefined, e => {
+  document.getElementById('msg').textContent = 'URDF load failed: ' + e;
+});
+
+const $ = id => document.getElementById(id);
+async function poll() {
+  try {
+    const s = await (await fetch('/state', { cache: 'no-store' })).json();
+    if (robot && s.q) {
+      s.q.forEach((v, i) => robot.setJointValue(`fr3_joint${i + 1}`, v));
+      robot.setJointValue('fr3_finger_joint1', s.gripper_width / 2);
+      robot.setJointValue('fr3_finger_joint2', s.gripper_width / 2);
+    }
+    const m = String(s.mode || '').replace('k', '');
+    $('mode').textContent = m; $('mode').className = 'mode ' + m.toLowerCase();
+    $('ee').textContent = s.ee.map(v => v.toFixed(3)).join(', ') + ' m';
+    $('grip').textContent = (s.gripper_width * 1000).toFixed(0) + ' mm' + (s.grasped ? ' (grasping)' : '');
+    $('force').textContent = s.external_force[2].toFixed(1) + ' N';
+    const sg = $('sigma');
+    sg.textContent = s.sigma_min.toFixed(3) + (s.sigma_min < 0.05 ? ' ⚠ near singularity' : '');
+    sg.style.color = s.sigma_min < 0.05 ? '#ff7b72' : '';
+    if (s.contact_z === null || s.contact_z === undefined) {
+      plane.visible = false; $('surface').textContent = 'none';
+    } else {
+      plane.visible = true; plane.position.set(0.4, 0, s.contact_z);
+      $('surface').textContent = 'z = ' + s.contact_z.toFixed(3) + ' m';
+    }
+  } catch (e) { $('mode').textContent = 'offline'; }
+  setTimeout(poll, 50);
+}
+poll();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+// URDF è Z-up come la scena: nessuna rotazione necessaria
+renderer.setAnimationLoop(() => renderer.render(scene, camera));
+</script>
+</body>
+</html>

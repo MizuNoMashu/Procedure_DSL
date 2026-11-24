@@ -7,6 +7,7 @@ via the cobot service proxy.
 """
 
 import os
+import time
 from pathlib import Path
 
 import requests as _requests
@@ -29,51 +30,77 @@ _COBOT_URL = os.environ.get("COBOT_SERVICE_URL", "http://cobot:5000")
 # ── Available cobot operations ────────────────────────────────────────────────
 # Each entry maps a logical operation name to its REST endpoint on the cobot
 # service plus a typed parameter schema used by the UI to render input fields.
+# `to_body` converts the UI parameters into the JSON body the endpoint expects.
 #
 # param types:
-#   "array6"  → 6-element float array  [x, y, z, rx, ry, rz]
 #   "array7"  → 7-element float array  (joint positions/deltas, rad)
 #   "float"   → single float value
+_SPEED = {
+    "type": "float",
+    "description": "Speed factor (0-1)",
+    "default": 0.2,
+    "required": False,
+}
+
 COBOT_OP_REGISTRY = {
     "move_home": {
         "endpoint": "/api/motion/move-home",
         "description": "Return robot to home position",
-        "params": {},
+        "params": {"speed_factor": _SPEED},
+        "to_body": lambda p: _only(p, "speed_factor"),
     },
     "move_joints": {
-        "endpoint": "/api/motion/move-joints",
+        "endpoint": "/api/motion-position-control/move",
         "description": "Move robot to absolute joint positions",
         "params": {
             "joints": {
                 "type": "array7",
                 "description": "7 joint positions (rad)",
                 "required": True,
-            }
+            },
+            "speed_factor": _SPEED,
         },
+        "to_body": lambda p: {"positions": p["joints"], **_only(p, "speed_factor")},
     },
     "move_relative": {
-        "endpoint": "/api/motion/move-relative",
+        "endpoint": "/api/motion-position-control/move-relative",
         "description": "Move robot by relative joint deltas",
         "params": {
             "delta": {
                 "type": "array7",
                 "description": "7 joint deltas (rad)",
                 "required": True,
-            }
+            },
+            "speed_factor": _SPEED,
         },
+        "to_body": lambda p: {"deltas": p["delta"], **_only(p, "speed_factor")},
+    },
+    "move_cartesian": {
+        "endpoint": "/api/motion-cartesian/move",
+        "description": "Move end-effector to an absolute Cartesian pose",
+        "params": {
+            "x": {"type": "float", "description": "x (m)", "required": True},
+            "y": {"type": "float", "description": "y (m)", "required": True},
+            "z": {"type": "float", "description": "z (m)", "required": True},
+            "roll": {"type": "float", "description": "roll (rad)", "default": 0.0, "required": False},
+            "pitch": {"type": "float", "description": "pitch (rad)", "default": 0.0, "required": False},
+            "yaw": {"type": "float", "description": "yaw (rad)", "default": 0.0, "required": False},
+            "speed_factor": _SPEED,
+        },
+        "to_body": lambda p: dict(p),
     },
     "pick_and_place": {
         "endpoint": "/api/motion/pick-and-place",
         "description": "Full pick-and-place workflow (home → open → pick → place → release → home)",
         "params": {
             "pick_pose": {
-                "type": "array6",
-                "description": "Pick pose [x, y, z, rx, ry, rz] (m / rad)",
+                "type": "array7",
+                "description": "Pick joint positions (rad)",
                 "required": True,
             },
             "place_pose": {
-                "type": "array6",
-                "description": "Place pose [x, y, z, rx, ry, rz] (m / rad)",
+                "type": "array7",
+                "description": "Place joint positions (rad)",
                 "required": True,
             },
             "grasp_force": {
@@ -89,6 +116,12 @@ COBOT_OP_REGISTRY = {
                 "required": False,
             },
         },
+        "to_body": lambda p: {
+            "pick_position": p["pick_pose"],
+            "place_position": p["place_pose"],
+            **({"grasp_force": p["grasp_force"]} if "grasp_force" in p else {}),
+            **({"grasp_width_mm": p["grasp_width"] * 1000.0} if "grasp_width" in p else {}),
+        },
     },
     "gripper_open": {
         "endpoint": "/api/gripper/open",
@@ -101,11 +134,13 @@ COBOT_OP_REGISTRY = {
                 "required": False,
             }
         },
+        "to_body": lambda p: {"width_mm": p["width"] * 1000.0} if "width" in p else {},
     },
     "gripper_close": {
         "endpoint": "/api/gripper/close",
         "description": "Close gripper fully",
         "params": {},
+        "to_body": lambda p: {},
     },
     "gripper_grasp": {
         "endpoint": "/api/gripper/grasp",
@@ -128,20 +163,19 @@ COBOT_OP_REGISTRY = {
                 "required": False,
             },
         },
+        "to_body": lambda p: {"width_mm": p["width"] * 1000.0, **_only(p, "force", "speed")},
     },
     "gripper_release": {
         "endpoint": "/api/gripper/release",
         "description": "Release object (open gripper)",
-        "params": {
-            "width": {
-                "type": "float",
-                "description": "Release width (m)",
-                "default": 0.08,
-                "required": False,
-            }
-        },
+        "params": {},
+        "to_body": lambda p: {},
     },
 }
+
+
+def _only(params, *keys):
+    return {k: params[k] for k in keys if k in params}
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -212,7 +246,10 @@ def load_dsl():
 @cobot_dsl_bp.route("/dsl-cobot/op-registry", methods=["GET"])
 def op_registry():
     """Return the available cobot operation registry."""
-    return jsonify(COBOT_OP_REGISTRY)
+    return jsonify({
+        name: {k: v for k, v in op.items() if k != "to_body"}
+        for name, op in COBOT_OP_REGISTRY.items()
+    })
 
 
 @cobot_dsl_bp.route("/dsl-cobot/save-cobot-ops", methods=["POST"])
@@ -259,30 +296,67 @@ def save_cobot_ops():
     })
 
 
+_OP_TIMEOUT_SEC = float(os.environ.get("COBOT_OP_TIMEOUT_SEC", "600"))
+_POLL_SEC = 0.3
+
+
+def _wait_until_idle(headers):
+    """Poll the cobot until the async operation ends; return its last_operation."""
+    deadline = time.monotonic() + _OP_TIMEOUT_SEC
+    while time.monotonic() < deadline:
+        status = _requests.get(f"{_COBOT_URL}/api/robot/status", headers=headers, timeout=10).json()
+        if not status.get("busy"):
+            return status
+        time.sleep(_POLL_SEC)
+    return None
+
+
 @cobot_dsl_bp.route("/dsl-cobot/execute-op", methods=["POST"])
 def execute_cobot_op():
     """
-    Execute a single cobot operation via the cobot service.
+    Execute a single cobot operation via the cobot service and wait for it to finish.
+
+    The cobot only accepts commands from the active session of its FIFO queue:
+    the browser opens it (static/cobot_session.js) and sends it in X-Session-Id.
 
     Body: {"func": "pick_and_place", "params": {"pick_pose": [...], ...}}
     """
     data = request.get_json(silent=True) or {}
     func_name = data.get("func", "").strip()
-    params = data.get("params", {})
+    params = data.get("params") or {}
 
     if func_name not in COBOT_OP_REGISTRY:
         return jsonify({"error": f"Unknown operation: {func_name}"}), 400
 
     op = COBOT_OP_REGISTRY[func_name]
     url = f"{_COBOT_URL}{op['endpoint']}"
+    headers = {k: v for k, v in request.headers.items() if k.lower() == "x-session-id"}
 
     try:
-        resp = _requests.post(url, json=params, timeout=60)
-        return (
-            resp.content,
-            resp.status_code,
-            {"Content-Type": resp.headers.get("Content-Type", "application/json")},
-        )
+        body = op["to_body"](params)
+    except KeyError as e:
+        return jsonify({"error": f"Missing parameter: {e.args[0]}"}), 400
+
+    try:
+        resp = _requests.post(url, json=body, headers=headers, timeout=60)
+        if resp.status_code != 202:
+            return (
+                resp.content,
+                resp.status_code,
+                {"Content-Type": resp.headers.get("Content-Type", "application/json")},
+            )
+
+        status = _wait_until_idle(headers)
+        if status is None:
+            return jsonify({"error": "Timed out waiting for the operation to finish"}), 504
+        last = status.get("last_operation") or {}
+        if last.get("success") is False or status.get("mode") == "error_locked":
+            return jsonify({
+                "error": last.get("error") or "Operation failed",
+                "operation": last.get("operation"),
+                "mode": status.get("mode"),
+            }), 500
+        return jsonify({"status": "completed", "operation": last.get("operation")}), 200
     except _requests.exceptions.ConnectionError:
         return jsonify({"error": f"Cobot service unreachable at {_COBOT_URL}"}), 503
     except _requests.exceptions.Timeout:
